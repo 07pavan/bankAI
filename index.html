@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BankAI — KYC Verification</title>
+  <meta name="description" content="Complete your KYC verification securely with camera-based document scanning and selfie capture." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- ───── Ambient background ───── -->
+  <div class="ambient-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- ───── Main Container ───── -->
+  <main class="app-container">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">🏦</span>
+        <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
+      </div>
+      <p class="header-subtitle">Secure KYC Verification</p>
+    </header>
+
+    <!-- Step Indicator -->
+    <nav class="stepper" aria-label="KYC Steps">
+      <div class="step-item active" data-step="1">
+        <div class="step-circle">
+          <span class="step-number">1</span>
+          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="step-label">Aadhaar</span>
+      </div>
+      <div class="step-connector"><div class="connector-fill"></div></div>
+      <div class="step-item" data-step="2">
+        <div class="step-circle">
+          <span class="step-number">2</span>
+          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="step-label">PAN</span>
+      </div>
+      <div class="step-connector"><div class="connector-fill"></div></div>
+      <div class="step-item" data-step="3">
+        <div class="step-circle">
+          <span class="step-number">3</span>
+          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="step-label">Selfie</span>
+      </div>
+    </nav>
+
+    <!-- ───── KYC STEP PANELS ───── -->
+
+    <!-- Step 1: Aadhaar -->
+    <section class="kyc-panel active" id="panel-aadhaar">
+      <div class="panel-card glass-card">
+        <h2 class="panel-title">📄 Aadhaar Card</h2>
+        <p class="panel-desc">Hold your Aadhaar card steady in front of the camera. We'll capture it automatically.</p>
+
+        <!-- Camera viewport -->
+        <div class="camera-viewport" id="viewport-aadhaar">
+          <video id="video-aadhaar" autoplay playsinline muted></video>
+          <canvas id="canvas-aadhaar" style="display:none;"></canvas>
+          <div class="scan-overlay">
+            <div class="scan-corner tl"></div>
+            <div class="scan-corner tr"></div>
+            <div class="scan-corner bl"></div>
+            <div class="scan-corner br"></div>
+            <div class="scan-line"></div>
+          </div>
+          <div class="capture-countdown" id="countdown-aadhaar" style="display:none;">
+            <span class="countdown-num"></span>
+          </div>
+        </div>
+
+        <!-- Captured preview -->
+        <div class="captured-preview" id="preview-aadhaar" style="display:none;">
+          <img id="captured-img-aadhaar" alt="Captured Aadhaar" />
+        </div>
+
+        <!-- OCR Loader -->
+        <div class="ocr-loader" id="loader-aadhaar" style="display:none;">
+          <div class="spinner"></div>
+          <p>Scanning document…</p>
+          <div class="progress-bar"><div class="progress-fill" id="progress-aadhaar"></div></div>
+        </div>
+
+        <!-- Result -->
+        <div class="ocr-result" id="result-aadhaar" style="display:none;">
+          <label class="result-label">Detected Aadhaar Number</label>
+          <input type="text" class="result-input" id="input-aadhaar" maxlength="14" placeholder="XXXX XXXX XXXX" />
+          <div class="result-actions">
+            <button class="btn btn-secondary" id="retry-aadhaar">⟳ Retry</button>
+            <button class="btn btn-primary" id="confirm-aadhaar">Confirm →</button>
+          </div>
+        </div>
+
+        <!-- Initial start button -->
+        <button class="btn btn-glow btn-start" id="start-aadhaar">Start Camera</button>
+      </div>
+    </section>
+
+    <!-- Step 2: PAN -->
+    <section class="kyc-panel" id="panel-pan">
+      <div class="panel-card glass-card">
+        <h2 class="panel-title">💳 PAN Card</h2>
+        <p class="panel-desc">Now show your PAN card to the camera. We'll auto-capture and read it.</p>
+
+        <div class="camera-viewport" id="viewport-pan">
+          <video id="video-pan" autoplay playsinline muted></video>
+          <canvas id="canvas-pan" style="display:none;"></canvas>
+          <div class="scan-overlay">
+            <div class="scan-corner tl"></div>
+            <div class="scan-corner tr"></div>
+            <div class="scan-corner bl"></div>
+            <div class="scan-corner br"></div>
+            <div class="scan-line"></div>
+          </div>
+          <div class="capture-countdown" id="countdown-pan" style="display:none;">
+            <span class="countdown-num"></span>
+          </div>
+        </div>
+
+        <div class="captured-preview" id="preview-pan" style="display:none;">
+          <img id="captured-img-pan" alt="Captured PAN" />
+        </div>
+
+        <div class="ocr-loader" id="loader-pan" style="display:none;">
+          <div class="spinner"></div>
+          <p>Scanning document…</p>
+          <div class="progress-bar"><div class="progress-fill" id="progress-pan"></div></div>
+        </div>
+
+        <div class="ocr-result" id="result-pan" style="display:none;">
+          <label class="result-label">Detected PAN Number</label>
+          <input type="text" class="result-input" id="input-pan" maxlength="10" placeholder="ABCDE1234F" />
+          <div class="result-actions">
+            <button class="btn btn-secondary" id="retry-pan">⟳ Retry</button>
+            <button class="btn btn-primary" id="confirm-pan">Confirm →</button>
+          </div>
+        </div>
+
+        <button class="btn btn-glow btn-start" id="start-pan">Start Camera</button>
+      </div>
+    </section>
+
+    <!-- Step 3: Selfie -->
+    <section class="kyc-panel" id="panel-selfie">
+      <div class="panel-card glass-card">
+        <h2 class="panel-title">🤳 Live Selfie</h2>
+        <p class="panel-desc">Position your face within the circle and tap capture.</p>
+
+        <div class="camera-viewport selfie-viewport" id="viewport-selfie">
+          <video id="video-selfie" autoplay playsinline muted></video>
+          <canvas id="canvas-selfie" style="display:none;"></canvas>
+          <div class="face-overlay">
+            <div class="face-circle"></div>
+          </div>
+        </div>
+
+        <div class="captured-preview selfie-preview" id="preview-selfie" style="display:none;">
+          <img id="captured-img-selfie" alt="Captured Selfie" />
+        </div>
+
+        <div class="selfie-actions" id="selfie-actions" style="display:none;">
+          <button class="btn btn-secondary" id="retake-selfie">⟳ Retake</button>
+          <button class="btn btn-primary" id="use-selfie">Use Photo ✓</button>
+        </div>
+
+        <button class="btn btn-glow btn-start" id="start-selfie">Start Camera</button>
+        <button class="btn btn-capture" id="capture-selfie" style="display:none;">
+          <span class="capture-ring"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Step 4: Success -->
+    <section class="kyc-panel" id="panel-success">
+      <div class="panel-card glass-card success-card">
+        <div class="success-icon" id="success-anim">
+          <svg viewBox="0 0 80 80">
+            <circle class="success-circle" cx="40" cy="40" r="36" />
+            <polyline class="success-tick" points="24 42 35 53 56 28" />
+          </svg>
+          <div class="success-particles" id="particles"></div>
+        </div>
+        <h2 class="success-title">KYC Submitted!</h2>
+        <p class="success-desc">Your identity verification is complete.</p>
+
+        <div class="summary-card">
+          <div class="summary-row">
+            <span class="summary-label">Aadhaar</span>
+            <span class="summary-value" id="summary-aadhaar">—</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">PAN</span>
+            <span class="summary-value" id="summary-pan">—</span>
+          </div>
+          <div class="summary-row selfie-row">
+            <span class="summary-label">Selfie</span>
+            <img class="summary-selfie" id="summary-selfie" alt="selfie" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Tesseract.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <!-- App Scripts -->
+  <script src="js/camera.js"></script>
+  <script src="js/ocr.js"></script>
+  <script src="js/selfie.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

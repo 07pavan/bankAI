@@ -1,0 +1,21 @@
+# Virtual environment
+backend/bankAI/
+
+# Database
+*.db
+
+# Selfie uploads
+backend/selfies/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -1,8 +1,18 @@
 # Virtual environment
 backend/bankAI/
+.venv/
 
 # Database
 *.db
+*.db-journal
+
+# Environment & Secrets
+.env
+backend/.env
+
+# Logs
+logs/
+*.log
 
 # Selfie uploads
 backend/selfies/
@@ -11,6 +21,11 @@ backend/selfies/
 __pycache__/
 *.pyc
 *.pyo
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
 
 # OS files
 .DS_Store

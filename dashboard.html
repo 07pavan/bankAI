@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BankAI — Dashboard</title>
+    <meta name="description" content="Your BankAI dashboard — manage banking services with AI voice assistance." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+
+    <style>
+        /* ── Reset ── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #050b18;
+            --surface: rgba(255, 255, 255, 0.04);
+            --surface-h: rgba(255, 255, 255, 0.08);
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #34d399;
+            --accent2: #38bdf8;
+            --accent3: #a78bfa;
+            --danger: #f87171;
+            --text: #f1f5f9;
+            --muted: #64748b;
+            --r: 20px;
+            --glow-g: 0 0 40px rgba(52, 211, 153, .15);
+            --glow-b: 0 0 40px rgba(56, 189, 248, .15);
+            --glow-p: 0 0 40px rgba(167, 139, 250, .2);
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            font-size: 1.05rem;
+            /* slightly larger for elderly users */
+        }
+
+        /* ── Ambient orbs ── */
+        .ambient {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: .18;
+            animation: drift 12s ease-in-out infinite alternate;
+        }
+
+        .orb-1 {
+            width: 500px;
+            height: 500px;
+            background: #34d399;
+            top: -100px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: #38bdf8;
+            bottom: -80px;
+            right: -80px;
+            animation-delay: -4s;
+        }
+
+        .orb-3 {
+            width: 300px;
+            height: 300px;
+            background: #a78bfa;
+            top: 40%;
+            left: 50%;
+            animation-delay: -8s;
+        }
+
+        @keyframes drift {
+            from {
+                transform: translate(0, 0) scale(1);
+            }
+
+            to {
+                transform: translate(30px, 20px) scale(1.08);
+            }
+        }
+
+        /* ── Layout ── */
+        .dashboard {
+            position: relative;
+            z-index: 1;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 1.5rem 4rem;
+        }
+
+        /* ── Top Nav ── */
+        .topnav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.5rem 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2.5rem;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
+
+        .logo-icon {
+            font-size: 1.6rem;
+        }
+
+        .logo-text {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -.5px;
+        }
+
+        .logo-accent {
+            color: var(--accent);
+        }
+
+        .nav-badge {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            background: rgba(52, 211, 153, .12);
+            border: 1px solid rgba(52, 211, 153, .3);
+            border-radius: 999px;
+            padding: .4rem 1rem;
+            font-size: .85rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .nav-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .3;
+            }
+        }
+
+        /* ── Welcome Hero ── */
+        .welcome-hero {
+            background: linear-gradient(135deg, rgba(52, 211, 153, .08) 0%, rgba(56, 189, 248, .06) 100%);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .welcome-hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+        }
+
+        .selfie-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid var(--accent);
+            object-fit: cover;
+            flex-shrink: 0;
+            box-shadow: 0 0 20px rgba(52, 211, 153, .3);
+            display: none;
+        }
+
+        .selfie-placeholder {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid var(--accent);
+            background: rgba(52, 211, 153, .1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            flex-shrink: 0;
+        }
+
+        .welcome-text h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -.5px;
+            background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .welcome-text p {
+            color: var(--muted);
+            margin-top: .4rem;
+        }
+
+        .kyc-badge {
+            margin-top: .8rem;
+            display: inline-flex;
+            align-items: center;
+            gap: .4rem;
+            background: rgba(52, 211, 153, .1);
+            border: 1px solid rgba(52, 211, 153, .3);
+            border-radius: 999px;
+            padding: .3rem .8rem;
+            font-size: .85rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        /* ── KYC Strip ── */
+        .kyc-strip {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .kyc-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.2rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .kyc-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+
+        .kyc-icon.g {
+            background: rgba(52, 211, 153, .12);
+        }
+
+        .kyc-icon.b {
+            background: rgba(56, 189, 248, .12);
+        }
+
+        .kyc-label {
+            font-size: .8rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .kyc-value {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: .1rem;
+            letter-spacing: .5px;
+        }
+
+        /* ── Section title ── */
+        .section-title {
+            font-size: .95rem;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+       AI CHAT PANEL
+    ═══════════════════════════════════════════════════════════════ */
+        .ai-panel {
+            background: linear-gradient(135deg, rgba(167, 139, 250, .09) 0%, rgba(56, 189, 248, .06) 100%);
+            border: 1px solid rgba(167, 139, 250, .25);
+            border-radius: var(--r);
+            margin-bottom: 2rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: var(--glow-p);
+        }
+
+        /* Panel header */
+        .ai-header {
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+            padding: 1.4rem 1.8rem;
+            border-bottom: 1px solid rgba(167, 139, 250, .15);
+            background: rgba(167, 139, 250, .06);
+            position: relative;
+        }
+
+        .ai-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent3), var(--accent2));
+        }
+
+        /* ── Robot SVG Avatar ── */
+        .robot-wrap {
+            position: relative;
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+        }
+
+        .robot-ring {
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            background: linear-gradient(135deg, var(--accent3), var(--accent2)) border-box;
+            -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: destination-out;
+            mask-composite: exclude;
+            animation: ring-spin 4s linear infinite;
+        }
+
+        @keyframes ring-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Speaking-wave bars that replace the ring when talking */
+        .speak-bars {
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+        }
+
+        .speak-bar {
+            width: 4px;
+            border-radius: 99px;
+            background: var(--accent3);
+            animation: wave-bar .7s ease-in-out infinite;
+        }
+
+        .speak-bar:nth-child(1) {
+            height: 10px;
+            animation-delay: 0s;
+        }
+
+        .speak-bar:nth-child(2) {
+            height: 18px;
+            animation-delay: .12s;
+        }
+
+        .speak-bar:nth-child(3) {
+            height: 24px;
+            animation-delay: .24s;
+        }
+
+        .speak-bar:nth-child(4) {
+            height: 18px;
+            animation-delay: .36s;
+        }
+
+        .speak-bar:nth-child(5) {
+            height: 10px;
+            animation-delay: .48s;
+        }
+
+        @keyframes wave-bar {
+
+            0%,
+            100% {
+                transform: scaleY(1);
+            }
+
+            50% {
+                transform: scaleY(1.6);
+            }
+        }
+
+        .ai-panel.speaking .robot-ring {
+            display: none;
+        }
+
+        .ai-panel.speaking .speak-bars {
+            display: flex;
+        }
+
+        /* Inline SVG robot face */
+        .robot-face {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1e1b4b, #0f172a);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .robot-face svg {
+            width: 42px;
+            height: 42px;
+        }
+
+        /* Eye blink */
+        .eye {
+            animation: blink 4s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            90%,
+            100% {
+                transform: scaleY(1);
+            }
+
+            92%,
+            97% {
+                transform: scaleY(.05);
+            }
+        }
+
+        /* Mouth — changes shape when speaking */
+        .mouth {
+            transition: d .2s ease;
+        }
+
+        .ai-panel.speaking .mouth-path {
+            animation: mouth-talk .3s step-end infinite;
+        }
+
+        @keyframes mouth-talk {
+            0% {
+                d: path("M 14 22 Q 21 28 28 22");
+            }
+
+            50% {
+                d: path("M 14 22 Q 21 18 28 22");
+            }
+        }
+
+        .ai-info h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .ai-info p {
+            font-size: .85rem;
+            color: var(--muted);
+            margin-top: .2rem;
+        }
+
+        .ai-online {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: .4rem;
+            font-size: .8rem;
+            color: var(--accent);
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .ai-online::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        /* ── Chat history ── */
+        .chat-history {
+            flex: 1;
+            min-height: 340px;
+            max-height: 420px;
+            overflow-y: auto;
+            padding: 1.5rem 1.8rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            scroll-behavior: smooth;
+        }
+
+        .chat-history::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-history::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-history::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, .1);
+            border-radius: 4px;
+        }
+
+        /* Bubbles */
+        .bubble {
+            display: flex;
+            gap: .75rem;
+            align-items: flex-end;
+            max-width: 82%;
+            animation: bubble-in .25s ease;
+        }
+
+        @keyframes bubble-in {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .bubble.agent {
+            align-self: flex-start;
+        }
+
+        .bubble.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .bubble-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .bubble.agent .bubble-avatar {
+            background: linear-gradient(135deg, var(--accent3), var(--accent2));
+        }
+
+        .bubble.user .bubble-avatar {
+            background: rgba(52, 211, 153, .15);
+        }
+
+        .bubble-text {
+            padding: 1rem 1.2rem;
+            border-radius: 18px;
+            font-size: 1rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .bubble.agent .bubble-text {
+            background: rgba(255, 255, 255, .07);
+            border: 1px solid rgba(255, 255, 255, .08);
+            border-bottom-left-radius: 4px;
+        }
+
+        .bubble.user .bubble-text {
+            background: rgba(52, 211, 153, .12);
+            border: 1px solid rgba(52, 211, 153, .2);
+            border-bottom-right-radius: 4px;
+        }
+
+        /* Typing indicator */
+        .typing {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: .8rem 1rem;
+        }
+
+        .typing span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--muted);
+            animation: typing-dot .9s ease-in-out infinite;
+        }
+
+        .typing span:nth-child(2) {
+            animation-delay: .2s;
+        }
+
+        .typing span:nth-child(3) {
+            animation-delay: .4s;
+        }
+
+        @keyframes typing-dot {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+                opacity: .4;
+            }
+
+            30% {
+                transform: translateY(-6px);
+                opacity: 1;
+            }
+        }
+
+        /* Form choice chips */
+        .form-chips {
+            display: flex;
+            flex-direction: column;
+            gap: .6rem;
+            margin-top: .5rem;
+        }
+
+        .form-chip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, .05);
+            border: 1px solid rgba(167, 139, 250, .25);
+            border-radius: 12px;
+            padding: .9rem 1.2rem;
+            cursor: pointer;
+            transition: all .2s ease;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .form-chip:hover {
+            background: rgba(167, 139, 250, .12);
+            border-color: rgba(167, 139, 250, .5);
+            transform: translateX(4px);
+        }
+
+        .form-chip-start {
+            font-size: .8rem;
+            color: var(--accent3);
+            font-weight: 700;
+            letter-spacing: .5px;
+        }
+
+        /* Progress bar (visible during form filling) */
+        .progress-wrap {
+            padding: 0 1.8rem .5rem;
+            display: none;
+        }
+
+        .progress-wrap.visible {
+            display: block;
+        }
+
+        .progress-label {
+            font-size: .82rem;
+            color: var(--muted);
+            margin-bottom: .4rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, .08);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent3), var(--accent2));
+            border-radius: 99px;
+            transition: width .4s ease;
+        }
+
+        /* ── Input row ── */
+        .chat-input-row {
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+            padding: 1.2rem 1.8rem;
+            border-top: 1px solid rgba(167, 139, 250, .12);
+            background: rgba(0, 0, 0, .2);
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(255, 255, 255, .05);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .9rem 1.2rem;
+            font-family: inherit;
+            font-size: 1rem;
+            color: var(--text);
+            outline: none;
+            resize: none;
+            min-height: 52px;
+            max-height: 100px;
+            line-height: 1.5;
+            transition: border-color .2s;
+        }
+
+        .chat-input:focus {
+            border-color: rgba(167, 139, 250, .5);
+        }
+
+        .chat-input::placeholder {
+            color: var(--muted);
+        }
+
+        /* Mic button */
+        .btn-mic {
+            position: relative;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent3), var(--accent2));
+            border: none;
+            cursor: pointer;
+            color: #fff;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 4px 20px rgba(167, 139, 250, .3);
+            transition: transform .15s, box-shadow .15s;
+        }
+
+        .btn-mic:hover {
+            transform: scale(1.07);
+            box-shadow: 0 6px 28px rgba(167, 139, 250, .45);
+        }
+
+        .btn-mic:active {
+            transform: scale(.95);
+        }
+
+        .btn-mic:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Ripple rings when listening */
+        .btn-mic .ripple {
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px solid rgba(167, 139, 250, .5);
+            opacity: 0;
+        }
+
+        .btn-mic.listening .ripple {
+            animation: mic-ripple 1.4s ease-out infinite;
+        }
+
+        .btn-mic.listening .ripple:nth-child(2) {
+            animation-delay: .7s;
+        }
+
+        @keyframes mic-ripple {
+            0% {
+                transform: scale(1);
+                opacity: .6;
+            }
+
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        .btn-mic.listening {
+            background: linear-gradient(135deg, var(--danger), #f97316);
+            animation: mic-pulse .8s ease-in-out infinite alternate;
+        }
+
+        @keyframes mic-pulse {
+            from {
+                box-shadow: 0 4px 20px rgba(248, 113, 113, .3);
+            }
+
+            to {
+                box-shadow: 0 6px 32px rgba(248, 113, 113, .6);
+            }
+        }
+
+        /* Send button */
+        .btn-send {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(52, 211, 153, .15);
+            border: 1px solid rgba(52, 211, 153, .3);
+            color: var(--accent);
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all .2s;
+        }
+
+        .btn-send:hover {
+            background: rgba(52, 211, 153, .25);
+            transform: scale(1.06);
+        }
+
+        .btn-send:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Mic status label */
+        .mic-status {
+            font-size: .78rem;
+            color: var(--muted);
+            text-align: center;
+            padding: .3rem 1.8rem .8rem;
+            display: none;
+        }
+
+        .mic-status.visible {
+            display: block;
+        }
+
+        /* ══════════════════════════════════════════════════════════
+       Services Grid
+    ══════════════════════════════════════════════════════════ */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .service-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all .25s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .service-card:hover {
+            background: var(--surface-h);
+            border-color: rgba(255, 255, 255, .15);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, .3);
+        }
+
+        .service-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--ca, var(--accent));
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform .3s;
+        }
+
+        .service-card:hover::after {
+            transform: scaleX(1);
+        }
+
+        .si {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .service-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: .3rem;
+        }
+
+        .service-card p {
+            font-size: .85rem;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .sarrow {
+            position: absolute;
+            top: 1.2rem;
+            right: 1.2rem;
+            color: var(--muted);
+            font-size: 1rem;
+            transition: transform .2s, color .2s;
+        }
+
+        .service-card:hover .sarrow {
+            transform: translate(3px, -3px);
+            color: var(--text);
+        }
+
+        /* ── Status Timeline ── */
+        .status-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 1.5rem;
+        }
+
+        .timeline-item {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            padding: .8rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .timeline-item:last-child {
+            border-bottom: none;
+        }
+
+        .tl-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-top: 6px;
+            flex-shrink: 0;
+        }
+
+        .tl-dot.done {
+            background: var(--accent);
+            box-shadow: 0 0 8px rgba(52, 211, 153, .5);
+        }
+
+        .tl-dot.pending {
+            background: var(--muted);
+        }
+
+        .tl-dot.active {
+            background: var(--accent2);
+            box-shadow: 0 0 8px rgba(56, 189, 248, .5);
+            animation: pulse 2s infinite;
+        }
+
+        .tl-label {
+            font-size: .95rem;
+            font-weight: 600;
+        }
+
+        .tl-sub {
+            font-size: .82rem;
+            color: var(--muted);
+            margin-top: .1rem;
+        }
+
+        .tl-badge {
+            margin-left: auto;
+            font-size: .78rem;
+            font-weight: 600;
+            padding: .2rem .6rem;
+            border-radius: 999px;
+        }
+
+        .tl-badge.done {
+            background: rgba(52, 211, 153, .12);
+            color: var(--accent);
+        }
+
+        .tl-badge.active {
+            background: rgba(56, 189, 248, .12);
+            color: var(--accent2);
+        }
+
+        .tl-badge.pending {
+            background: rgba(100, 116, 139, .15);
+            color: var(--muted);
+        }
+
+        /* ── Footer ── */
+        .dash-footer {
+            text-align: center;
+            padding: 2rem 0 1rem;
+            font-size: .82rem;
+            color: var(--muted);
+            border-top: 1px solid var(--border);
+            margin-top: 1rem;
+        }
+
+        .dash-footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(30, 41, 59, .95);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: .8rem 1.5rem;
+            font-size: .9rem;
+            font-weight: 500;
+            color: var(--text);
+            backdrop-filter: blur(12px);
+            transition: transform .3s ease;
+            z-index: 999;
+            white-space: nowrap;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 600px) {
+            .welcome-hero {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .kyc-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .services-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .chat-history {
+                min-height: 260px;
+                max-height: 320px;
+            }
+
+            .bubble {
+                max-width: 96%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="ambient">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <div class="dashboard">
+
+        <!-- Top Nav -->
+        <nav class="topnav" aria-label="Main navigation">
+            <div class="logo">
+                <span class="logo-icon" aria-hidden="true">🏦</span>
+                <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
+            </div>
+            <div class="nav-badge" role="status" aria-label="KYC Verified">KYC Verified</div>
+        </nav>
+
+        <!-- Welcome Hero -->
+        <div class="welcome-hero">
+            <div id="avatar-container" aria-hidden="true">
+                <div class="selfie-placeholder" id="selfie-placeholder">👤</div>
+                <img class="selfie-avatar" id="selfie-avatar" alt="Your photo" />
+            </div>
+            <div class="welcome-text">
+                <h1>Welcome to BankAI 👋</h1>
+                <p>Your identity has been verified. Speak to your AI assistant below to get started.</p>
+                <div class="kyc-badge">✅ KYC Complete — <span id="timestamp"></span></div>
+            </div>
+        </div>
+
+        <!-- KYC Strip -->
+        <div class="kyc-strip" role="region" aria-label="KYC Summary">
+            <div class="kyc-card">
+                <div class="kyc-icon g" aria-hidden="true">🪪</div>
+                <div>
+                    <div class="kyc-label">Aadhaar</div>
+                    <div class="kyc-value" id="dash-aadhaar">XXXX XXXX ----</div>
+                </div>
+            </div>
+            <div class="kyc-card">
+                <div class="kyc-icon b" aria-hidden="true">💳</div>
+                <div>
+                    <div class="kyc-label">PAN</div>
+                    <div class="kyc-value" id="dash-pan">----------</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════ AI CHAT PANEL ══════════ -->
+        <div class="section-title">AI Banking Assistant</div>
+        <div class="ai-panel" id="aiPanel" role="main">
+
+            <!-- Header -->
+            <div class="ai-header">
+                <div class="robot-wrap" aria-hidden="true">
+                    <div class="robot-ring"></div>
+                    <div class="speak-bars">
+                        <div class="speak-bar"></div>
+                        <div class="speak-bar"></div>
+                        <div class="speak-bar"></div>
+                        <div class="speak-bar"></div>
+                        <div class="speak-bar"></div>
+                    </div>
+                    <div class="robot-face">
+                        <!-- Animated robot SVG -->
+                        <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg" role="img"
+                            aria-label="AI Robot">
+                            <!-- Head -->
+                            <rect x="6" y="8" width="30" height="26" rx="6" fill="#1e293b" stroke="#a78bfa"
+                                stroke-width="1.5" />
+                            <!-- Antenna -->
+                            <line x1="21" y1="8" x2="21" y2="3" stroke="#a78bfa" stroke-width="1.5"
+                                stroke-linecap="round" />
+                            <circle cx="21" cy="2.5" r="1.8" fill="#38bdf8" />
+                            <!-- Left eye -->
+                            <rect class="eye" x="11" y="14" width="7" height="7" rx="2" fill="#38bdf8"
+                                style="transform-origin:14.5px 17.5px" />
+                            <!-- Right eye -->
+                            <rect class="eye" x="24" y="14" width="7" height="7" rx="2" fill="#38bdf8"
+                                style="transform-origin:27.5px 17.5px; animation-delay:.3s" />
+                            <!-- Mouth bar -->
+                            <rect class="mouth" rx="2" x="12" y="26" width="18" height="4" fill="#a78bfa" />
+                            <!-- Ear bolt left -->
+                            <circle cx="6" cy="21" r="2" fill="#334155" />
+                            <!-- Ear bolt right -->
+                            <circle cx="36" cy="21" r="2" fill="#334155" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="ai-info">
+                    <h3>BankAI Assistant</h3>
+                    <p id="ai-subtitle">Ask about forms • Apply with voice • Get help</p>
+                </div>
+                <div class="ai-online" role="status" aria-label="Assistant online">Online</div>
+            </div>
+
+            <!-- Progress bar (shown during form filling) -->
+            <div class="progress-wrap" id="progressWrap" aria-label="Form progress">
+                <div class="progress-label">
+                    <span id="progressLabel">Field 0 of 0</span>
+                    <span id="progressPct">0%</span>
+                </div>
+                <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-fill" id="progressFill" style="width:0%"></div>
+                </div>
+            </div>
+
+            <!-- Chat history -->
+            <div class="chat-history" id="chatHistory" role="log" aria-live="polite" aria-label="Conversation">
+                <!-- Messages injected by JS -->
+            </div>
+
+            <!-- Mic status label -->
+            <div class="mic-status" id="micStatus" aria-live="assertive"></div>
+
+            <!-- Input row -->
+            <div class="chat-input-row">
+                <textarea class="chat-input" id="chatInput" placeholder="Type your message or press the mic…"
+                    aria-label="Type a message" rows="1"></textarea>
+                <button class="btn-mic" id="btnMic" aria-label="Start voice input" title="Speak">
+                    <div class="ripple"></div>
+                    <div class="ripple"></div>
+                    🎙️
+                </button>
+                <button class="btn-send" id="btnSend" aria-label="Send message" title="Send">
+                    ▶
+                </button>
+            </div>
+        </div>
+
+        <!-- Banking Services -->
+        <div class="section-title">Quick Services</div>
+        <div class="services-grid" role="list" aria-label="Banking services">
+
+            <div class="service-card" role="listitem" style="--ca:#34d399;"
+                onclick="askAbout('I want to open a savings account')">
+                <div class="si" style="background:rgba(52,211,153,.12)" aria-hidden="true">🏦</div>
+                <h3>Account Opening</h3>
+                <p>Open a savings or current account instantly via voice.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="service-card" role="listitem" style="--ca:#38bdf8;"
+                onclick="askAbout('link my aadhaar to bank')">
+                <div class="si" style="background:rgba(56,189,248,.12)" aria-hidden="true">🔗</div>
+                <h3>Aadhaar Seeding</h3>
+                <p>Link Aadhaar to your account for DBT benefits.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="service-card" role="listitem" style="--ca:#a78bfa;" onclick="askAbout('I need a cheque book')">
+                <div class="si" style="background:rgba(167,139,250,.12)" aria-hidden="true">📒</div>
+                <h3>Cheque Book</h3>
+                <p>Request a new cheque book delivered to your address.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="service-card" role="listitem" style="--ca:#fbbf24;" onclick="showComingSoon('Fund Transfer')">
+                <div class="si" style="background:rgba(251,191,36,.12)" aria-hidden="true">💸</div>
+                <h3>Fund Transfer</h3>
+                <p>Transfer funds via NEFT, RTGS or IMPS instantly.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="service-card" role="listitem" style="--ca:#f472b6;"
+                onclick="showComingSoon('Account Statement')">
+                <div class="si" style="background:rgba(244,114,182,.12)" aria-hidden="true">📊</div>
+                <h3>Account Statement</h3>
+                <p>Download or view your transaction history.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="service-card" role="listitem" style="--ca:#34d399;"
+                onclick="showComingSoon('Loan Application')">
+                <div class="si" style="background:rgba(52,211,153,.12)" aria-hidden="true">🔒</div>
+                <h3>Loan Application</h3>
+                <p>Apply for personal, home or vehicle loans.</p>
+                <span class="sarrow" aria-hidden="true">↗</span>
+            </div>
+        </div>
+
+        <!-- Verification Status -->
+        <div class="section-title">Verification Status</div>
+        <div class="status-card" role="region" aria-label="Verification status">
+            <div role="list">
+                <div class="timeline-item" role="listitem">
+                    <div class="tl-dot done" aria-hidden="true"></div>
+                    <div>
+                        <div class="tl-label">Aadhaar Verified</div>
+                        <div class="tl-sub">Document scanned and number extracted</div>
+                    </div>
+                    <span class="tl-badge done" role="status">Done</span>
+                </div>
+                <div class="timeline-item" role="listitem">
+                    <div class="tl-dot done" aria-hidden="true"></div>
+                    <div>
+                        <div class="tl-label">PAN Verified</div>
+                        <div class="tl-sub">PAN card scanned and validated</div>
+                    </div>
+                    <span class="tl-badge done" role="status">Done</span>
+                </div>
+                <div class="timeline-item" role="listitem">
+                    <div class="tl-dot done" aria-hidden="true"></div>
+                    <div>
+                        <div class="tl-label">Selfie Captured</div>
+                        <div class="tl-sub">Live photo taken for liveness check</div>
+                    </div>
+                    <span class="tl-badge done" role="status">Done</span>
+                </div>
+                <div class="timeline-item" role="listitem">
+                    <div class="tl-dot active" aria-hidden="true"></div>
+                    <div>
+                        <div class="tl-label">Backend Review</div>
+                        <div class="tl-sub">Your submission is being processed</div>
+                    </div>
+                    <span class="tl-badge active" role="status">In Progress</span>
+                </div>
+                <div class="timeline-item" role="listitem">
+                    <div class="tl-dot pending" aria-hidden="true"></div>
+                    <div>
+                        <div class="tl-label">Account Activation</div>
+                        <div class="tl-sub">Full access granted after review</div>
+                    </div>
+                    <span class="tl-badge pending" role="status">Pending</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="dash-footer">
+            BankAI v2.0 &nbsp;·&nbsp; Secured with AES-256 encryption &nbsp;·&nbsp;
+            <a href="/">← Back to KYC</a>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" role="alert" aria-live="polite"></div>
+
+    <script>
+        /* ══════════════════════════════════════════════════════════
+           BankAI Dashboard — ChatAgent
+           Modes: "chat" (pre-submission) | "form_filling" | "done"
+        ══════════════════════════════════════════════════════════ */
+
+        'use strict';
+
+        // ── Auth token from sessionStorage (set by app.js after KYC) ──────────────
+        const TOKEN = sessionStorage.getItem('bankai_token') || '';
+
+        // ── DOM refs ──────────────────────────────────────────────────────────────
+        const panel = document.getElementById('aiPanel');
+        const history = document.getElementById('chatHistory');
+        const inputEl = document.getElementById('chatInput');
+        const btnMic = document.getElementById('btnMic');
+        const btnSend = document.getElementById('btnSend');
+        const micStatus = document.getElementById('micStatus');
+        const subtitle = document.getElementById('ai-subtitle');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressFill = document.getElementById('progressFill');
+        const progressLbl = document.getElementById('progressLabel');
+        const progressPct = document.getElementById('progressPct');
+
+        // ── Agent state ───────────────────────────────────────────────────────────
+        const state = {
+            mode: 'chat',          // "chat" | "form_filling" | "done"
+            submissionId: null,
+            busy: false,
+            recognition: null,
+            synth: window.speechSynthesis,
+        };
+
+        // ── Speech Recognition setup ──────────────────────────────────────────────
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        if (SpeechRec) {
+            recognition = new SpeechRec();
+            recognition.lang = 'en-IN';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onresult = (e) => {
+                const transcript = e.results[0][0].transcript.trim();
+                stopListening();
+                if (transcript) {
+                    inputEl.value = transcript;
+                    send();
+                }
+            };
+
+            recognition.onerror = (e) => {
+                stopListening();
+                if (e.error !== 'no-speech') showMicStatus('Could not hear you — please try again.', true);
+            };
+
+            recognition.onend = () => stopListening();
+        }
+
+        // ── Text-to-Speech ────────────────────────────────────────────────────────
+        function speak(text) {
+            if (!state.synth) return;
+            state.synth.cancel();
+            const utt = new SpeechSynthesisUtterance(text);
+            utt.lang = 'en-IN';
+            utt.rate = 0.92;
+            utt.pitch = 1.05;
+
+            // Prefer an Indian English voice if available
+            const voices = state.synth.getVoices();
+            const indVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
+            if (indVoice) utt.voice = indVoice;
+
+            utt.onstart = () => panel.classList.add('speaking');
+            utt.onend = () => panel.classList.remove('speaking');
+            utt.onerror = () => panel.classList.remove('speaking');
+            state.synth.speak(utt);
+        }
+
+        // ── Mic controls ─────────────────────────────────────────────────────────
+        function startListening() {
+            if (!recognition) { showToast('🎙️ Voice input not supported in this browser'); return; }
+            try {
+                recognition.start();
+                btnMic.classList.add('listening');
+                btnMic.setAttribute('aria-label', 'Stop listening');
+                showMicStatus('🎙️ Listening… speak now');
+            } catch (_) { /* already started */ }
+        }
+
+        function stopListening() {
+            if (recognition) try { recognition.stop(); } catch (_) { }
+            btnMic.classList.remove('listening');
+            btnMic.setAttribute('aria-label', 'Start voice input');
+            showMicStatus('');
+        }
+
+        function showMicStatus(msg, isError = false) {
+            micStatus.textContent = msg;
+            micStatus.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+            micStatus.classList.toggle('visible', !!msg);
+        }
+
+        btnMic.addEventListener('click', () => {
+            if (state.busy) return;
+            if (btnMic.classList.contains('listening')) stopListening();
+            else startListening();
+        });
+
+        // ── Auto-resize textarea ──────────────────────────────────────────────────
+        inputEl.addEventListener('input', () => {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+        });
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+
+        btnSend.addEventListener('click', send);
+
+        // ── Send dispatcher ───────────────────────────────────────────────────────
+        async function send() {
+            const text = inputEl.value.trim();
+            if (!text || state.busy) return;
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+
+            addBubble('user', text);
+            setBusy(true);
+            showTyping();
+
+            try {
+                if (state.mode === 'chat') {
+                    await handleChatTurn(text);
+                } else if (state.mode === 'form_filling') {
+                    await handleFormTurn(text);
+                }
+            } catch (err) {
+                removeTyping();
+                addBubble('agent', '⚠️ Something went wrong. Please try again.');
+                console.error(err);
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        // ── Chat mode: POST /api/v1/conversation/chat ─────────────────────────────
+        async function handleChatTurn(message) {
+            const res = await authFetch('/api/v1/conversation/chat', { method: 'POST', body: { message } });
+            removeTyping();
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                addBubble('agent', `⚠️ ${err.detail || 'Error communicating with server.'}`);
+                return;
+            }
+
+            const data = await res.json();
+            addBubble('agent', data.message);
+            speak(data.message);
+
+            // If form_selection intent, show clickable form chips
+            if (data.intent === 'form_selection' && data.available_forms?.length) {
+                renderFormChips(data.available_forms);
+            }
+        }
+
+        // ── Form filling: POST /api/v1/conversation/next ──────────────────────────
+        async function handleFormTurn(message) {
+            const res = await authFetch('/api/v1/conversation/next', {
+                method: 'POST',
+                body: { submission_id: state.submissionId, message }
+            });
+            removeTyping();
+
+            if (res.status === 422) {
+                const err = await res.json().catch(() => ({}));
+                const msg = err.detail || 'That value looks incorrect. Please try again.';
+                addBubble('agent', `⚠️ ${msg}`);
+                speak(msg);
+                return;
+            }
+
+            if (!res.ok) {
+                addBubble('agent', '⚠️ Could not save your answer. Please try again.');
+                return;
+            }
+
+            const data = await res.json();
+            addBubble('agent', data.next_question);
+            speak(data.next_question);
+
+            if (data.status === 'completed') {
+                state.mode = 'done';
+                subtitle.textContent = 'Application submitted ✅';
+                hideProgress();
+                addCompletion();
+            }
+        }
+
+        // ── Start a form submission ────────────────────────────────────────────────
+        async function startFormSubmission(formId, formName) {
+            setBusy(true);
+            showTyping();
+            try {
+                const res = await authFetch('/api/v1/submissions/start', {
+                    method: 'POST',
+                    body: { form_id: formId }
+                });
+                removeTyping();
+
+                if (!res.ok) {
+                    addBubble('agent', '⚠️ Could not start the form. Please try again.');
+                    return;
+                }
+                const sub = await res.json();
+                state.submissionId = sub.id;
+                state.mode = 'form_filling';
+                subtitle.textContent = `Filling: ${formName}`;
+
+                // Ask first question
+                showTyping();
+                const turnRes = await authFetch('/api/v1/conversation/next', {
+                    method: 'POST',
+                    body: { submission_id: sub.id, message: '__start__' }
+                });
+                removeTyping();
+
+                if (turnRes.ok) {
+                    const turn = await turnRes.json();
+                    addBubble('agent', turn.next_question);
+                    speak(turn.next_question);
+                    // Progress
+                    if (sub.total_fields) showProgress(0, sub.total_fields);
+                }
+            } catch (err) {
+                removeTyping();
+                addBubble('agent', '⚠️ Error starting form. Please try again.');
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        // ── Render form selection chips ────────────────────────────────────────────
+        function renderFormChips(forms) {
+            const wrap = document.createElement('div');
+            wrap.className = 'form-chips';
+            forms.forEach(f => {
+                const chip = document.createElement('div');
+                chip.className = 'form-chip';
+                chip.setAttribute('role', 'button');
+                chip.setAttribute('tabindex', '0');
+                chip.setAttribute('aria-label', `Start ${f.name}`);
+                chip.innerHTML = `<span>🏦 ${f.name}</span><span class="form-chip-start">START →</span>`;
+                chip.addEventListener('click', () => {
+                    wrap.remove();
+                    addBubble('user', `Start ${f.name}`);
+                    speak(`Great! Let's fill out the ${f.name} form together.`);
+                    addBubble('agent', `Great! Let's begin the **${f.name}** form. I'll guide you step by step.`);
+                    startFormSubmission(f.id, f.name);
+                });
+                chip.addEventListener('keydown', e => { if (e.key === 'Enter') chip.click(); });
+                wrap.appendChild(chip);
+            });
+
+            // Attach chips after the last agent bubble
+            const lastBubble = [...history.querySelectorAll('.bubble.agent')].pop();
+            if (lastBubble) lastBubble.querySelector('.bubble-text').appendChild(wrap);
+        }
+
+        // ── Progress bar ──────────────────────────────────────────────────────────
+        function showProgress(current, total) {
+            const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+            progressWrap.classList.add('visible');
+            progressFill.style.width = pct + '%';
+            progressFill.parentElement.setAttribute('aria-valuenow', pct);
+            progressLbl.textContent = `Field ${current} of ${total}`;
+            progressPct.textContent = pct + '%';
+        }
+
+        function hideProgress() {
+            progressWrap.classList.remove('visible');
+        }
+
+        // ── Chat bubble helpers ───────────────────────────────────────────────────
+        function addBubble(role, text) {
+            const wrap = document.createElement('div');
+            wrap.className = `bubble ${role}`;
+            const av = document.createElement('div');
+            av.className = 'bubble-avatar';
+            av.textContent = role === 'agent' ? '🤖' : '👤';
+            const txt = document.createElement('div');
+            txt.className = 'bubble-text';
+            txt.textContent = text;   // textContent prevents XSS
+            wrap.appendChild(av);
+            wrap.appendChild(txt);
+            history.appendChild(wrap);
+            history.scrollTop = history.scrollHeight;
+            return wrap;
+        }
+
+        function showTyping() {
+            const t = document.createElement('div');
+            t.className = 'bubble agent';
+            t.id = 'typing-indicator';
+            t.innerHTML = `<div class="bubble-avatar">🤖</div>
+        <div class="bubble-text">
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>`;
+            history.appendChild(t);
+            history.scrollTop = history.scrollHeight;
+        }
+
+        function removeTyping() {
+            document.getElementById('typing-indicator')?.remove();
+        }
+
+        function addCompletion() {
+            const b = addBubble('agent',
+                '🎉 Your application has been submitted! Our team will review it and contact you shortly.'
+            );
+            speak('Your application has been submitted successfully! Our team will review it and contact you shortly.');
+        }
+
+        // ── Busy state ────────────────────────────────────────────────────────────
+        function setBusy(v) {
+            state.busy = v;
+            btnSend.disabled = v;
+            btnMic.disabled = v;
+            inputEl.disabled = v;
+        }
+
+        // ── Authenticated fetch ───────────────────────────────────────────────────
+        function authFetch(url, { method = 'GET', body } = {}) {
+            const opts = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+                },
+            };
+            if (body) opts.body = JSON.stringify(body);
+            return fetch(url, opts);
+        }
+
+        // ── Quick-ask from service cards ──────────────────────────────────────────
+        function askAbout(msg) {
+            if (state.mode !== 'chat') {
+                showToast('💬 Complete the current form first!');
+                return;
+            }
+            inputEl.value = msg;
+            send();
+        }
+
+        // ── Toast ─────────────────────────────────────────────────────────────────
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.transform = 'translateX(-50%) translateY(0)';
+            setTimeout(() => { t.style.transform = 'translateX(-50%) translateY(100px)'; }, 2500);
+        }
+
+        // ── Coming soon ───────────────────────────────────────────────────────────
+        function showComingSoon(name) {
+            showToast(`🚧 ${name} — Coming soon!`);
+        }
+
+        // ── Initial greeting ──────────────────────────────────────────────────────
+        function greet() {
+            const hour = new Date().getHours();
+            const time = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+            const greeting = (
+                `${time}! 👋 I'm your BankAI Assistant.\n\n` +
+                `I can help you:\n` +
+                `• Open a savings account\n` +
+                `• Link your Aadhaar\n` +
+                `• Request a cheque book\n\n` +
+                `Just type or tap the 🎙️ mic to speak — I'll guide you through everything!`
+            );
+            addBubble('agent', greeting);
+            setTimeout(() => speak(greeting), 600);
+        }
+
+        // ── Seed page data from sessionStorage ────────────────────────────────────
+        (function init() {
+            const aadhaar = sessionStorage.getItem('bankai_aadhaar_masked') || 'XXXX XXXX ----';
+            const pan = sessionStorage.getItem('bankai_pan') || '----------';
+            const selfie = sessionStorage.getItem('bankai_selfie');
+
+            document.getElementById('dash-aadhaar').textContent = aadhaar;
+            document.getElementById('dash-pan').textContent = pan;
+
+            if (selfie) {
+                document.getElementById('selfie-placeholder').style.display = 'none';
+                const img = document.getElementById('selfie-avatar');
+                img.src = selfie;
+                img.style.display = 'block';
+            }
+
+            const now = new Date();
+            document.getElementById('timestamp').textContent =
+                now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                + ' · ' + now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+            // Pre-load voices for TTS (Chrome requires this)
+            if (window.speechSynthesis) {
+                window.speechSynthesis.getVoices();
+                window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+            }
+
+            greet();
+        })();
+    </script>
+</body>
+
+</html>

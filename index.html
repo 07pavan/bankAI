@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BankAI — KYC Verification</title>
-  <meta name="description" content="Complete your KYC verification securely with camera-based document scanning and selfie capture." />
+  <meta name="description"
+    content="Complete your KYC verification securely with camera-based document scanning and selfie capture." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
+
 <body>
   <!-- ───── Ambient background ───── -->
   <div class="ambient-bg">
@@ -35,23 +38,33 @@
       <div class="step-item active" data-step="1">
         <div class="step-circle">
           <span class="step-number">1</span>
-          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          <svg class="step-check" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
         <span class="step-label">Aadhaar</span>
       </div>
-      <div class="step-connector"><div class="connector-fill"></div></div>
+      <div class="step-connector">
+        <div class="connector-fill"></div>
+      </div>
       <div class="step-item" data-step="2">
         <div class="step-circle">
           <span class="step-number">2</span>
-          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          <svg class="step-check" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
         <span class="step-label">PAN</span>
       </div>
-      <div class="step-connector"><div class="connector-fill"></div></div>
+      <div class="step-connector">
+        <div class="connector-fill"></div>
+      </div>
       <div class="step-item" data-step="3">
         <div class="step-circle">
           <span class="step-number">3</span>
-          <svg class="step-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          <svg class="step-check" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
         <span class="step-label">Selfie</span>
       </div>
@@ -90,7 +103,9 @@
         <div class="ocr-loader" id="loader-aadhaar" style="display:none;">
           <div class="spinner"></div>
           <p>Scanning document…</p>
-          <div class="progress-bar"><div class="progress-fill" id="progress-aadhaar"></div></div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-aadhaar"></div>
+          </div>
         </div>
 
         <!-- Result -->
@@ -136,7 +151,9 @@
         <div class="ocr-loader" id="loader-pan" style="display:none;">
           <div class="spinner"></div>
           <p>Scanning document…</p>
-          <div class="progress-bar"><div class="progress-fill" id="progress-pan"></div></div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-pan"></div>
+          </div>
         </div>
 
         <div class="ocr-result" id="result-pan" style="display:none;">
@@ -209,6 +226,10 @@
             <img class="summary-selfie" id="summary-selfie" alt="selfie" />
           </div>
         </div>
+
+        <button class="btn btn-glow btn-dashboard" id="go-to-dashboard" style="margin-top:1.5rem;width:100%;">
+          Open Dashboard →
+        </button>
       </div>
     </section>
 
@@ -223,4 +244,5 @@
   <script src="js/selfie.js"></script>
   <script src="js/app.js"></script>
 </body>
+
 </html>

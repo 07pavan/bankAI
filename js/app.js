@@ -340,6 +340,10 @@
     // Backend submission
     // ══════════════════════════════════
     async function submitKYC() {
+        const dashBtn = document.getElementById('go-to-dashboard');
+        dashBtn.disabled = true;
+        dashBtn.textContent = 'Submitting…';
+
         const payload = {
             aadhaar: kycData.aadhaar,
             pan: kycData.pan,
@@ -347,7 +351,7 @@
         };
 
         try {
-            const res = await fetch('http://localhost:8000/api/kyc/submit', {
+            const res = await fetch('/api/v1/kyc/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -355,11 +359,32 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             console.log('KYC submitted:', data);
+
+            // Store token + user info for dashboard
+            if (data.access_token) {
+                sessionStorage.setItem('bankai_token', data.access_token);
+            }
+            if (data.submission_id) {
+                sessionStorage.setItem('bankai_submission_id', data.submission_id);
+            }
+            // Store masked values for dashboard display
+            sessionStorage.setItem('bankai_aadhaar_masked', summaryAadh.textContent);
+            sessionStorage.setItem('bankai_pan', kycData.pan || '—');
+            if (kycData.selfie) sessionStorage.setItem('bankai_selfie', kycData.selfie);
+
         } catch (err) {
             console.warn('Backend submission failed (offline mode):', err.message);
-            // App still works — data is stored in-memory
+            // Still allow navigation in offline/demo mode
         }
+
+        dashBtn.disabled = false;
+        dashBtn.textContent = 'Open Dashboard →';
     }
+
+    // ── Dashboard navigation ──
+    document.getElementById('go-to-dashboard').addEventListener('click', () => {
+        window.location.href = '/dashboard.html';
+    });
 
     // ── Init ──
     goToStep(1);

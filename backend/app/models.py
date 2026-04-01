@@ -29,11 +29,13 @@ class User(Base):
     """
     User model for authentication.
     Created after successful KYC submission.
+    role: 'user' (default) or 'admin' — controls access to admin panel.
     """
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     aadhaar_hash = Column(String(64), unique=True, nullable=False, index=True)
+    role = Column(String(20), nullable=False, default="user", server_default="user")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -41,7 +43,7 @@ class User(Base):
     submissions = relationship("Submission", back_populates="user")  # Phase 2
 
     def __repr__(self):
-        return f"<User(id={self.id})>"
+        return f"<User(id={self.id}, role={self.role})>"
 
 
 class KYCSubmission(Base):

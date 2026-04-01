@@ -13,7 +13,7 @@ import os
 
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger, set_correlation_id
-from app.api.v1 import kyc, auth, forms, submissions, conversation
+from app.api.v1 import kyc, auth, forms, submissions, conversation, admin
 
 # Setup logging
 setup_logging()
@@ -69,6 +69,8 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(forms.router, prefix="/api/v1/forms", tags=["Forms"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["Submissions"])
 app.include_router(conversation.router, prefix="/api/v1/conversation", tags=["Conversation"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+
 
 
 @app.get("/api/health")

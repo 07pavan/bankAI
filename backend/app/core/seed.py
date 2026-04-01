@@ -16,7 +16,7 @@ Design principles:
 """
 
 from sqlalchemy.orm import Session
-from app.models import Bank, Form, FormSection, FormField
+from app.models import Bank, Form, FormSection, FormField, User
 from app.core.logging import get_logger
 
 logger = get_logger()
@@ -316,13 +316,13 @@ FORMS: dict[str, list[dict]] = {
 
 def seed_defaults(db: Session) -> None:
     """
-    Idempotently seed banks and forms.
-    Skips any record that already exists (checked by unique code).
+    Idempotently seed banks, forms, and admin user.
     Safe to call on every application startup.
     """
     try:
         _seed_banks(db)
         _seed_forms(db)
+        _seed_admin_user(db)
         logger.info("Seed data verified/applied successfully")
     except Exception as exc:
         logger.error(f"Seed failed: {exc}", exc_info=True)
@@ -395,3 +395,49 @@ def _seed_forms(db: Session) -> None:
             logger.info(f"Seeded form: '{form_data['code']}' for bank '{bank_code}'")
 
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Admin user seed
+# ---------------------------------------------------------------------------
+
+# Dev admin Aadhaar — used ONLY for local development.
+# Change this in production by setting the role directly in the DB.
+_ADMIN_AADHAAR_HASH = "admin_dev_placeholder_hash_999999999999"
+
+
+def _seed_admin_user(db: Session) -> None:
+    """
+    Create one admin user if none exists.
+
+    In development the 'admin' User row is seeded with a known Aadhaar hash
+    so that calling POST /api/v1/kyc/submit with Aadhaar='999999999999' and
+    any PAN returns a JWT that grants admin access.
+    """
+    existing_admin = db.query(User).filter(User.role == "admin").first()
+    if existing_admin:
+        logger.info(f"Admin user already exists (id={existing_admin.id})")
+        return
+
+    # Create a dev admin user.
+    # The aadhaar_hash here is a known fixed value for dev Aadhaar 999999999999.
+    # In production, set role='admin' directly on a real user row in the DB.
+    from app.core.encryption import encryption_service
+    dev_aadhaar = "999999999999"
+    aadhaar_hash = encryption_service.hash_aadhaar(dev_aadhaar)
+
+    existing = db.query(User).filter(User.aadhaar_hash == aadhaar_hash).first()
+    if existing:
+        existing.role = "admin"
+        db.commit()
+        logger.info(f"Promoted existing user (id={existing.id}) to admin")
+        return
+
+    admin_user = User(aadhaar_hash=aadhaar_hash, role="admin")
+    db.add(admin_user)
+    db.commit()
+    db.refresh(admin_user)
+    logger.info(
+        f"[ADMIN SEED] Created dev admin user (id={admin_user.id}). "
+        f"Login with Aadhaar=999999999999 and any PAN to get an admin JWT."
+    )

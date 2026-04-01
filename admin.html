@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BankAI — Admin Panel</title>
+  <meta name="description" content="BankAI Admin Panel — manage banks, forms, fields, and view submissions." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #050b18;
+      --surface: rgba(255,255,255,0.04);
+      --surface-h: rgba(255,255,255,0.08);
+      --border: rgba(255,255,255,0.08);
+      --accent: #34d399;
+      --accent2: #38bdf8;
+      --accent3: #a78bfa;
+      --danger: #f87171;
+      --warning: #fbbf24;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --r: 16px;
+      --side-w: 220px;
+    }
+
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Ambient ── */
+    .ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .13; animation: drift 12s ease-in-out infinite alternate; }
+    .orb-1 { width: 500px; height: 500px; background: #34d399; top: -120px; left: -80px; }
+    .orb-2 { width: 380px; height: 380px; background: #38bdf8; bottom: -80px; right: -60px; animation-delay: -4s; }
+    .orb-3 { width: 280px; height: 280px; background: #a78bfa; top: 40%; left: 45%; animation-delay: -8s; }
+    @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(30px,20px) scale(1.06); } }
+
+    /* ── Layout ── */
+    .shell { position: relative; z-index: 1; display: flex; min-height: 100vh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--side-w);
+      background: rgba(255,255,255,0.03);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 1.5rem 1rem;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .logo { display: flex; align-items: center; gap: .5rem; margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--border); }
+    .logo-icon { font-size: 1.4rem; }
+    .logo-text { font-size: 1.1rem; font-weight: 700; }
+    .logo-accent { color: var(--accent); }
+    .admin-badge { font-size: .65rem; background: rgba(167,139,250,.15); border: 1px solid rgba(167,139,250,.3); color: var(--accent3); padding: .15rem .5rem; border-radius: 999px; font-weight: 600; margin-left: auto; }
+
+    .nav-label { font-size: .68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin: 0 0 .5rem .5rem; }
+    .nav-btn {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .7rem .9rem; border-radius: 10px;
+      border: none; background: transparent; color: var(--muted);
+      font-family: inherit; font-size: .9rem; font-weight: 500;
+      cursor: pointer; width: 100%; text-align: left;
+      margin-bottom: .25rem;
+      transition: background .15s, color .15s;
+    }
+    .nav-btn:hover { background: var(--surface-h); color: var(--text); }
+    .nav-btn.active { background: rgba(52,211,153,.1); color: var(--accent); border: 1px solid rgba(52,211,153,.2); }
+    .nav-btn .nav-icon { font-size: 1.1rem; }
+
+    .sidebar-footer { margin-top: auto; font-size: .75rem; color: var(--muted); text-align: center; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .admin-user-pill { background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.2); border-radius: 8px; padding: .5rem .75rem; margin-bottom: 1rem; font-size: .8rem; color: var(--accent); font-weight: 600; }
+
+    /* ── Main content ── */
+    .main { flex: 1; padding: 2rem; overflow: auto; }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 2rem; padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar h1 { font-size: 1.5rem; font-weight: 800; }
+    .topbar-right { display: flex; align-items: center; gap: .75rem; }
+    .online-badge { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--accent); font-weight: 600; }
+    .online-badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+    /* ── Tabs ── */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; }
+    .card-title { font-size: 1rem; font-weight: 700; }
+    .card-count { font-size: .8rem; color: var(--muted); background: var(--surface-h); border-radius: 6px; padding: .2rem .6rem; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .55rem 1.1rem; border-radius: 10px;
+      border: none; cursor: pointer; font-family: inherit;
+      font-size: .875rem; font-weight: 600;
+      transition: transform .12s, box-shadow .12s;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #10b981); color: #fff; box-shadow: 0 4px 14px rgba(52,211,153,.3); }
+    .btn-secondary { background: var(--surface-h); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: rgba(248,113,113,.12); color: var(--danger); border: 1px solid rgba(248,113,113,.25); }
+    .btn-accent { background: linear-gradient(135deg, var(--accent3), var(--accent2)); color: #fff; box-shadow: 0 4px 14px rgba(167,139,250,.3); }
+    .btn-sm { padding: .35rem .75rem; font-size: .8rem; }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    thead { background: rgba(255,255,255,.04); }
+    th { padding: .75rem 1rem; text-align: left; font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+    td { padding: .8rem 1rem; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    .badge { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .65rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+    .badge-green { background: rgba(52,211,153,.12); color: var(--accent); border: 1px solid rgba(52,211,153,.2); }
+    .badge-red { background: rgba(248,113,113,.12); color: var(--danger); border: 1px solid rgba(248,113,113,.2); }
+    .badge-blue { background: rgba(56,189,248,.12); color: var(--accent2); border: 1px solid rgba(56,189,248,.2); }
+    .badge-purple { background: rgba(167,139,250,.12); color: var(--accent3); border: 1px solid rgba(167,139,250,.2); }
+    .badge-yellow { background: rgba(251,191,36,.12); color: var(--warning); border: 1px solid rgba(251,191,36,.2); }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 3rem; color: var(--muted); }
+    .empty-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+
+    /* ── Sub-section ── */
+    .sub-section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+    .sub-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .sub-section-title { font-size: .9rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── Selects & Inputs ── */
+    .form-select, .form-input, .form-textarea {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: .65rem 1rem;
+      color: var(--text);
+      font-family: inherit;
+      font-size: .9rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .form-select:focus, .form-input:focus, .form-textarea:focus { border-color: rgba(52,211,153,.4); }
+    .form-select option { background: #0f172a; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; padding: 1rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: #0d1a2d;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 20px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 500px;
+      transform: translateY(20px);
+      transition: transform .25s ease;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal h2 { font-size: 1.2rem; font-weight: 800; margin-bottom: 1.5rem; }
+    .modal-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 1.4rem; cursor: pointer; padding: .2rem .5rem; border-radius: 8px; }
+    .modal-close:hover { background: var(--surface-h); color: var(--text); }
+    .form-group { margin-bottom: 1.1rem; }
+    .form-group label { display: block; font-size: .82rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem; }
+    .form-group .form-input, .form-group .form-select, .form-group .form-textarea { width: 100%; }
+    .form-group .form-textarea { resize: vertical; min-height: 80px; }
+    .modal-actions { display: flex; gap: .75rem; justify-content: flex-end; margin-top: 1.5rem; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+
+    /* ── Auth modal ── */
+    .auth-overlay {
+      position: fixed; inset: 0; background: rgba(5,11,24,.95);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2000; flex-direction: column; gap: 1.5rem; padding: 1.5rem;
+    }
+    .auth-box { background: #0d1a2d; border: 1px solid rgba(167,139,250,.3); border-radius: 20px; padding: 2.5rem; width: 100%; max-width: 460px; }
+    .auth-box h1 { font-size: 1.5rem; font-weight: 800; margin-bottom: .5rem; }
+    .auth-box p { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; line-height: 1.6; }
+    .auth-error { color: var(--danger); font-size: .85rem; margin-top: .5rem; display: none; }
+
+    /* ── Detail row (submission) ── */
+    .detail-row { display: flex; gap: 1rem; align-items: flex-start; padding: .6rem 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { width: 180px; flex-shrink: 0; font-size: .8rem; color: var(--muted); font-weight: 600; padding-top: .1rem; }
+    .detail-val { font-size: .9rem; word-break: break-all; }
+    .field-data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .75rem; }
+    .field-chip { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: .6rem .9rem; }
+    .field-chip-key { font-size: .72rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+    .field-chip-val { font-size: .9rem; margin-top: .2rem; font-weight: 500; }
+
+    /* ── Spinner ── */
+    .spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    #toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 3000; display: flex; flex-direction: column; gap: .5rem; }
+    .toast { background: #1e293b; border: 1px solid var(--border); border-radius: 12px; padding: .8rem 1.2rem; font-size: .88rem; font-weight: 500; display: flex; align-items: center; gap: .6rem; animation: slide-in .25s ease; min-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+    .toast.success { border-left: 3px solid var(--accent); }
+    .toast.error { border-left: 3px solid var(--danger); }
+    @keyframes slide-in { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Clickable row ── */
+    .clickable { cursor: pointer; }
+    .clickable:hover td { background: rgba(167,139,250,.05) !important; }
+
+    /* ── Field type select ── */
+    .field-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .4rem; }
+    .type-chip { padding: .4rem; text-align: center; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: .8rem; transition: all .15s; background: var(--surface); }
+    .type-chip.sel { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.4); color: var(--accent); font-weight: 600; }
+    .type-chip:hover { border-color: rgba(255,255,255,.2); }
+  </style>
+</head>
+<body>
+
+<!-- Auth overlay -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-box">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1.2rem;">
+      <span style="font-size:1.8rem">🏦</span>
+      <span style="font-size:1.3rem;font-weight:800">Bank<span style="color:var(--accent)">AI</span> <span style="font-size:.9rem;color:var(--accent3);font-weight:600">Admin</span></span>
+    </div>
+    <h1>Admin Login</h1>
+    <p>Enter your admin JWT token below, or submit KYC with Aadhaar <strong>999 999 999 999</strong> on the main site to receive an admin token.</p>
+    <div class="form-group">
+      <label>Admin JWT Token</label>
+      <textarea id="tokenInput" class="form-textarea" style="width:100%;min-height:100px;font-size:.8rem;font-family:monospace" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
+      <div class="auth-error" id="authError">Invalid or non-admin token. Please try again.</div>
+    </div>
+    <button class="btn btn-accent" style="width:100%;" onclick="submitToken()">
+      🔐 Access Admin Panel
+    </button>
+  </div>
+</div>
+
+<!-- Main shell -->
+<div class="ambient">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<div class="shell" id="appShell" style="display:none">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">🏦</span>
+      <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
+      <span class="admin-badge">ADMIN</span>
+    </div>
+
+    <div class="nav-label">Navigation</div>
+    <button class="nav-btn active" id="nav-banks" onclick="showTab('banks')">
+      <span class="nav-icon">🏛️</span> Banks
+    </button>
+    <button class="nav-btn" id="nav-forms" onclick="showTab('forms')">
+      <span class="nav-icon">📋</span> Forms
+    </button>
+    <button class="nav-btn" id="nav-submissions" onclick="showTab('submissions')">
+      <span class="nav-icon">📊</span> Submissions
+    </button>
+
+    <div class="sidebar-footer">
+      <div class="admin-user-pill" id="adminUserPill">Admin ●</div>
+      <button class="btn btn-secondary btn-sm" style="width:100%" onclick="logout()">🚪 Logout</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">Banks</h1>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:.2rem">Manage your banking infrastructure</div>
+      </div>
+      <div class="topbar-right">
+        <div class="online-badge">System Online</div>
+      </div>
+    </div>
+
+    <!-- ── BANKS TAB ── -->
+    <div class="tab-pane active" id="tab-banks">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">All Banks</span>
+          <button class="btn btn-primary btn-sm" onclick="openModal('bankModal')">+ Add Bank</button>
+        </div>
+        <div class="table-wrap">
+          <table id="banksTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Name</th><th>Code</th><th>Status</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="banksBody">
+              <tr><td colspan="5"><div class="empty"><div class="spin"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FORMS TAB ── -->
+    <div class="tab-pane" id="tab-forms">
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:1rem;">
+            <span class="card-title">Forms</span>
+            <select class="form-select" id="bankFilter" onchange="loadForms()" style="font-size:.85rem;padding:.4rem .8rem;">
+              <option value="">All Banks</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openCreateFormModal()">+ Add Form</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Bank</th><th>Name</th><th>Code</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="formsBody">
+              <tr><td colspan="6"><div class="empty"><div class="spin"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Selected form detail -->
+      <div id="formDetailCard" style="display:none">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📂 <span id="selectedFormName">—</span></span>
+            <span class="badge badge-blue" id="selectedFormCode"></span>
+          </div>
+
+          <!-- Sections sub-section -->
+          <div class="sub-section">
+            <div class="sub-section-header">
+              <span class="sub-section-title">Sections</span>
+              <button class="btn btn-secondary btn-sm" onclick="openModal('sectionModal')">+ Add Section</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Name</th><th>Order</th></tr></thead>
+                <tbody id="sectionsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Fields sub-section -->
+          <div class="sub-section">
+            <div class="sub-section-header">
+              <span class="sub-section-title">Fields</span>
+              <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModal()">+ Add Field</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Key</th><th>Label</th><th>Type</th><th>Required</th><th>Active</th><th>Actions</th></tr></thead>
+                <tbody id="fieldsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SUBMISSIONS TAB ── -->
+    <div class="tab-pane" id="tab-submissions">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">All Submissions</span>
+          <div style="display:flex;align-items:center;gap:.75rem;">
+            <span class="card-count" id="submissionCount">—</span>
+            <button class="btn btn-secondary btn-sm" onclick="loadSubmissions()">↻ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>User</th><th>Bank</th><th>Form</th><th>Status</th><th>State</th><th>Created</th><th>Detail</th></tr></thead>
+            <tbody id="submissionsBody">
+              <tr><td colspan="8"><div class="empty"><div class="spin"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:1rem;align-items:center;" id="paginationBar">
+          <button class="btn btn-secondary btn-sm" id="prevBtn" onclick="prevPage()">← Prev</button>
+          <span id="pageInfo" style="font-size:.85rem;color:var(--muted)"></span>
+          <button class="btn btn-secondary btn-sm" id="nextBtn" onclick="nextPage()">Next →</button>
+        </div>
+      </div>
+
+      <!-- Submission detail -->
+      <div class="card" id="submissionDetailCard" style="display:none">
+        <div class="card-header">
+          <span class="card-title">Submission Detail</span>
+          <button class="btn btn-secondary btn-sm" onclick="closeSubmissionDetail()">✕ Close</button>
+        </div>
+        <div id="submissionDetailBody"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ── Modals ── -->
+
+<!-- Add Bank Modal -->
+<div class="modal-overlay" id="bankModal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2>🏛️ Add Bank</h2>
+      <button class="modal-close" onclick="closeModal('bankModal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Bank Name</label>
+      <input type="text" class="form-input" id="bankName" placeholder="e.g. HDFC Bank" />
+    </div>
+    <div class="form-group">
+      <label>Bank Code <span style="color:var(--muted);font-weight:400">(unique, uppercase)</span></label>
+      <input type="text" class="form-input" id="bankCode" placeholder="e.g. HDFC" style="font-family:monospace;text-transform:uppercase" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('bankModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createBank()">Create Bank</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Form Modal -->
+<div class="modal-overlay" id="formModal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2 id="formModalTitle">📋 Add Form</h2>
+      <button class="modal-close" onclick="closeModal('formModal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Bank</label>
+      <select class="form-select" id="formBankId" style="width:100%"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Form Name</label>
+        <input type="text" class="form-input" id="formName" placeholder="e.g. Savings Account" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Form Code</label>
+        <input type="text" class="form-input" id="formCode" placeholder="e.g. savings_account" style="font-family:monospace" />
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:.75rem">
+      <label>Description <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <textarea class="form-textarea" id="formDesc" placeholder="Short description of this form"></textarea>
+    </div>
+    <div class="form-group" id="formActiveGroup" style="display:none">
+      <label>
+        <input type="checkbox" id="formIsActive" checked style="margin-right:.4rem" />
+        Active (visible to users)
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
+      <button class="btn btn-primary" id="formModalSubmit" onclick="submitFormModal()">Create Form</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Section Modal -->
+<div class="modal-overlay" id="sectionModal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2>📁 Add Section</h2>
+      <button class="modal-close" onclick="closeModal('sectionModal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Section Name</label>
+      <input type="text" class="form-input" id="sectionName" style="width:100%" placeholder="e.g. Personal Information" />
+    </div>
+    <div class="form-group">
+      <label>Order Index</label>
+      <input type="number" class="form-input" id="sectionOrder" style="width:100%" value="0" min="0" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('sectionModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createSection()">Add Section</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Field Modal -->
+<div class="modal-overlay" id="fieldModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-top">
+      <h2 id="fieldModalTitle">🔧 Add Field</h2>
+      <button class="modal-close" onclick="closeModal('fieldModal')">✕</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Field Key <span style="color:var(--muted);font-weight:400">(snake_case)</span></label>
+        <input type="text" class="form-input" id="fieldKey" placeholder="e.g. full_name" style="font-family:monospace" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Label (shown to user)</label>
+        <input type="text" class="form-input" id="fieldLabel" placeholder="e.g. Full Name" />
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:.75rem">
+      <label>Field Type</label>
+      <div class="field-type-grid" id="fieldTypeGrid">
+        <div class="type-chip sel" data-type="text" onclick="selectFieldType('text')">📝 text</div>
+        <div class="type-chip" data-type="number" onclick="selectFieldType('number')">🔢 number</div>
+        <div class="type-chip" data-type="date" onclick="selectFieldType('date')">📅 date</div>
+        <div class="type-chip" data-type="select" onclick="selectFieldType('select')">▼ select</div>
+        <div class="type-chip" data-type="radio" onclick="selectFieldType('radio')">🔘 radio</div>
+        <div class="type-chip" data-type="checkbox" onclick="selectFieldType('checkbox')">☑ checkbox</div>
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:.75rem">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Section</label>
+        <select class="form-select" id="fieldSection" style="width:100%">
+          <option value="">— No section —</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Order Index</label>
+        <input type="number" class="form-input" id="fieldOrder" value="0" min="0" />
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:.75rem">
+      <label>
+        <input type="checkbox" id="fieldRequired" checked style="margin-right:.4rem" />
+        Required field
+      </label>
+    </div>
+    <div class="form-group" id="fieldActiveGroup" style="display:none">
+      <label>
+        <input type="checkbox" id="fieldIsActive" checked style="margin-right:.4rem" />
+        Active
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Options JSON <span style="color:var(--muted);font-weight:400">(for select/radio/checkbox)</span></label>
+      <textarea class="form-textarea" id="fieldOptions" placeholder='[{"value":"opt1","label":"Option 1"}]' style="font-family:monospace;font-size:.8rem;min-height:70px"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Validation Rule JSON <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <textarea class="form-textarea" id="fieldValidation" placeholder='{"min_length":2, "pattern":"^\\d{10}$"}' style="font-family:monospace;font-size:.8rem;min-height:60px"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('fieldModal')">Cancel</button>
+      <button class="btn btn-primary" id="fieldModalSubmit" onclick="submitFieldModal()">Add Field</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script src="js/admin.js"></script>
+</body>
+</html>

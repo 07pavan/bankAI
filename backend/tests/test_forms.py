@@ -120,7 +120,7 @@ class TestListForms:
 
     def test_requires_auth(self, client: TestClient):
         resp = client.get("/api/v1/forms")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -163,4 +163,4 @@ class TestGetFormDetail:
     def test_requires_auth(self, client: TestClient, db_session):
         _, forms = seed_bank_and_forms(db_session)
         resp = client.get(f"/api/v1/forms/{forms[0].id}")
-        assert resp.status_code == 403
+        assert resp.status_code == 401

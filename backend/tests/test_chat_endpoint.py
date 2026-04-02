@@ -159,7 +159,7 @@ class TestChatAuth:
             "/api/v1/conversation/chat",
             json={"message": "hello"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     def test_empty_message_rejected(self, client: TestClient, db_session):
         token = get_token(client)

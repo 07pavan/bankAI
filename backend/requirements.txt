@@ -20,6 +20,9 @@ passlib[bcrypt]>=1.7.4
 # Configuration
 python-dotenv>=1.0.0
 
+# Rate Limiting
+slowapi>=0.1.9
+
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0

@@ -1397,6 +1397,14 @@
             };
 
             recognition.onend = () => stopListening();
+        } else {
+            // ── Fallback for browsers without Speech Recognition ──────────────
+            btnMic.disabled = true;
+            btnMic.title = 'Voice input is not supported in this browser. Please use Chrome or Edge.';
+            btnMic.setAttribute('aria-label', 'Voice input unavailable');
+            inputEl.placeholder = 'Type your message here (voice unavailable in this browser)…';
+            // Show persistent notice — will remain visible since showMicStatus uses .visible class
+            setTimeout(() => showMicStatus('🎙️ Voice unavailable — use Chrome/Edge for speech. You can still type!'), 100);
         }
 
         // ── Text-to-Speech ────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ KYC API Endpoints (v1)
 Handles KYC submission, status retrieval, and admin endpoints
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,13 +11,15 @@ from app.schemas import KYCSubmitRequest, KYCSubmitResponse, KYCStatusResponse
 from app.services import kyc_service, auth_service
 from app.core.security import get_current_user_id
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter
 
 logger = get_logger()
 router = APIRouter()
 
 
 @router.post("/submit", response_model=KYCSubmitResponse)
-def submit_kyc(req: KYCSubmitRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def submit_kyc(request: Request, req: KYCSubmitRequest, db: Session = Depends(get_db)):
     """
     Submit KYC data: Aadhaar, PAN, and selfie image.
     

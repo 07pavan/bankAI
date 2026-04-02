@@ -3,7 +3,7 @@
  * Handles all API communication, rendering, and modal logic for the admin panel.
  */
 
-const API = 'http://localhost:8000/api/v1/admin';
+const API = '/api/v1/admin';
 
 // ────────────────────────────────────────────────────────────────────────────
 // State

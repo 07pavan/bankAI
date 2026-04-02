@@ -91,7 +91,7 @@ def test_get_kyc_status_unauthenticated(client):
     """Test retrieving KYC status without authentication"""
     response = client.get("/api/v1/kyc/status/1")
     
-    assert response.status_code == 403  # Forbidden (no auth header)
+    assert response.status_code == 401  # Unauthorized (no auth header)
 
 
 @pytest.mark.integration

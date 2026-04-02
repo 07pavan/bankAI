@@ -7,6 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from datetime import datetime
 import uvicorn
 import os
@@ -19,11 +21,18 @@ from app.api.v1 import kyc, auth, forms, submissions, conversation, admin
 setup_logging()
 logger = get_logger()
 
+# Rate limiter — keyed by client IP address
+from app.core.rate_limit import limiter
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Production-grade KYC verification backend with encryption and authentication",
     version=settings.APP_VERSION,
 )
+
+# Register rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # Middleware for correlation ID (request tracing)

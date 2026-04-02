@@ -299,7 +299,7 @@ class TestConversationAuth:
             "/api/v1/conversation/next",
             json={"submission_id": 1, "message": "hello"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     def test_cannot_access_other_users_submission(self, client: TestClient, db_session):
         _, form_id = seed_simple_form(db_session, num_fields=1)

@@ -119,7 +119,7 @@ class TestStartSubmission:
     def test_requires_auth(self, client: TestClient, db_session):
         _, form_id = seed_form_with_fields(db_session)
         resp = client.post("/api/v1/submissions/start", json={"form_id": form_id})
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ class TestListSubmissions:
 
     def test_requires_auth(self, client: TestClient):
         resp = client.get("/api/v1/submissions")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -239,4 +239,4 @@ class TestCompleteSubmission:
 
     def test_requires_auth(self, client: TestClient):
         resp = client.post("/api/v1/submissions/complete", json={"submission_id": 1})
-        assert resp.status_code == 403
+        assert resp.status_code == 401

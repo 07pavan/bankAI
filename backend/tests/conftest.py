@@ -21,6 +21,10 @@ import app.database as app_db  # import after env vars are set
 from app.database import Base, get_db
 from app.main import app
 from app.core.encryption import encryption_service
+from app.core.rate_limit import limiter
+
+# Disable rate limiting during tests
+limiter.enabled = False
 
 
 # Use in-memory SQLite for testing

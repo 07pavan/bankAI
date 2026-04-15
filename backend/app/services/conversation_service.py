@@ -1,8 +1,18 @@
 """
-ConversationService — state-machine-driven voice/text agent for form filling.
+ConversationService — hybrid AI + keyword-based agent for form filling.
 
-State Machine (backend is sole authority):
-  WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → COMPLETE
+Hybrid Mode (controlled by USE_LLM_AGENT flag):
+  When USE_LLM_AGENT is True AND LLM_API_KEY is configured:
+    1. User message is PII-redacted
+    2. LangGraph AI agent processes the turn
+    3. Agent state is synced back to the DB
+    4. If the LLM fails or returns an error → automatic fallback
+
+  When USE_LLM_AGENT is False OR LLM is not configured:
+    → Deterministic keyword-based logic (original behaviour, zero-cost)
+
+State Machine (backend is sole authority — both modes enforce this):
+  CHAT → WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → COMPLETE
 
 Pre-submission Chat Mode (CHAT):
   Stateless — never reads/writes any Submission record.
@@ -13,7 +23,8 @@ AI responsibilities (strictly limited):
   ✓ Map natural language → structured field value
   ✓ Generate next question from field metadata
   ✓ Detect confirmation intent in REVIEW state
-  ✓ Classify chat intent from keyword sets (no free LLM)
+  ✓ Classify chat intent from keyword sets (fallback)
+  ✓ Use LLM for richer NLP when available (hybrid)
 
 Backend responsibilities:
   ✓ Decide which field is next (current_field_index)
@@ -39,8 +50,33 @@ from app.schemas import (
     FormFieldOut,
 )
 from app.core.logging import get_logger
+from app.core.llm_redaction import redact_pii, should_redact_before_llm
 
 logger = get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Hybrid mode configuration
+# ---------------------------------------------------------------------------
+
+# Set to False to disable LLM entirely and use pure keyword logic.
+# Even when True, the system gracefully falls back to keywords on LLM failure.
+USE_LLM_AGENT: bool = True
+
+
+def _is_llm_enabled() -> bool:
+    """
+    Check if LLM agent should be attempted for this turn.
+    Returns True only when USE_LLM_AGENT flag is on AND the LLM API key
+    is configured.  Safe to call at any time.
+    """
+    if not USE_LLM_AGENT:
+        return False
+    try:
+        from app.services.ai_agent_service import is_llm_available
+        return is_llm_available()
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +154,7 @@ REJECTION_WORDS = {"no", "wrong", "incorrect", "change", "edit", "modify", "back
 
 
 # ---------------------------------------------------------------------------
-# Public API — state dispatcher
+# Public API — hybrid dispatcher (LLM-first, keyword fallback)
 # ---------------------------------------------------------------------------
 
 def handle_conversation_turn(
@@ -130,7 +166,11 @@ def handle_conversation_turn(
     """
     Main entry point for POST /api/v1/conversation/next.
 
-    Dispatches to the correct state handler based on submission.conversation_state.
+    Hybrid strategy:
+      1. If LLM is enabled → try ai_agent_service.invoke_agent()
+      2. If LLM succeeds → sync state to DB, return result
+      3. If LLM fails or is disabled → fall back to keyword logic
+
     The backend is the single source of truth for which state we are in.
 
     Args:
@@ -140,13 +180,136 @@ def handle_conversation_turn(
         db: Database session
 
     Returns:
-        ConversationTurnResponse with next_question (as agent_message), field_key, is_complete
+        ConversationTurnResponse with next_question (as agent_message),
+        field_key, is_complete
+    """
+    # --- Try LLM agent first -----------------------------------------------
+    if _is_llm_enabled():
+        llm_result = _try_llm_turn(submission_id, user_id, message, db)
+        if llm_result is not None:
+            return llm_result
+        # LLM failed — fall through to keyword logic
+        logger.info(
+            f"LLM fallback triggered for submission={submission_id} — "
+            f"using keyword logic"
+        )
+
+    # --- Keyword-based fallback --------------------------------------------
+    return _keyword_conversation_turn(submission_id, user_id, message, db)
+
+
+def _try_llm_turn(
+    submission_id: int,
+    user_id: int,
+    message: str,
+    db: Session,
+) -> Optional[ConversationTurnResponse]:
+    """
+    Attempt to process the turn via the LangGraph AI agent.
+
+    Returns a ConversationTurnResponse on success, or None if the LLM
+    call fails (so the caller can fall back to keyword logic).
+
+    This function:
+      1. Loads the submission to read current state
+      2. Invokes the LangGraph agent (PII is redacted internally)
+      3. Syncs the returned conversation_state back to the DB
+      4. Converts the agent result to ConversationTurnResponse
+    """
+    try:
+        from app.services.ai_agent_service import (
+            invoke_agent,
+            get_last_agent_message,
+        )
+
+        # Load submission — backend is sole authority on state
+        sub = submission_service.get_submission(submission_id, user_id, db)
+
+        logger.info(
+            f"LLM turn attempt: submission={sub.id} state={sub.conversation_state} "
+            f"field_idx={sub.current_field_index}"
+        )
+
+        # Invoke LangGraph agent
+        result = invoke_agent(
+            user_id=user_id,
+            user_message=message,
+            conversation_state=sub.conversation_state,
+            submission_id=sub.id,
+            current_field=None,  # Agent will call get_next_field
+            form_id=sub.form_id,
+            thread_id=f"submission_{sub.id}",
+        )
+
+        # Check for agent-level errors
+        if result.get("error"):
+            logger.warning(
+                f"LLM agent returned error for submission={sub.id}: "
+                f"{result['error']} — falling back to keywords"
+            )
+            return None
+
+        # Extract agent response text
+        agent_message = get_last_agent_message(result)
+        if not agent_message:
+            logger.warning(
+                f"LLM agent returned empty message for submission={sub.id} — "
+                f"falling back to keywords"
+            )
+            return None
+
+        # Sync conversation_state back to DB
+        new_state = result.get("conversation_state", sub.conversation_state)
+        if sub.conversation_state != new_state:
+            sub.conversation_state = new_state
+            db.commit()
+            db.refresh(sub)
+            logger.info(
+                f"LLM synced state: submission={sub.id} → {new_state}"
+            )
+
+        is_complete = new_state == ConversationState.COMPLETE
+        field_key = result.get("current_field")
+
+        logger.info(
+            f"LLM turn success: submission={sub.id} state={new_state} "
+            f"complete={is_complete}"
+        )
+
+        return ConversationTurnResponse(
+            submission_id=sub.id,
+            field_key=field_key,
+            agent_message=agent_message,
+            is_complete=is_complete,
+            progress=_build_progress(sub, db),
+        )
+
+    except Exception as exc:
+        logger.error(
+            f"LLM turn failed for submission={submission_id}: {exc}",
+            exc_info=True,
+        )
+        return None  # Signal fallback to keyword logic
+
+
+def _keyword_conversation_turn(
+    submission_id: int,
+    user_id: int,
+    message: str,
+    db: Session,
+) -> ConversationTurnResponse:
+    """
+    Original keyword-based conversation turn handler.
+    Deterministic, zero-cost, always-available fallback.
+
+    Dispatches to the correct state handler based on
+    submission.conversation_state.
     """
     sub = submission_service.get_submission(submission_id, user_id, db)
     state = sub.conversation_state
 
     logger.info(
-        f"Conversation turn: submission={submission_id} state={state} "
+        f"Keyword turn: submission={submission_id} state={state} "
         f"field_index={sub.current_field_index}"
     )
 
@@ -231,16 +394,14 @@ def detect_application_intent(text_input: str, bank_id: int, db: Session) -> Opt
 
 def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnResponse":
     """
-    Stateless pre-submission chat handler — does NOT touch any Submission record.
+    Hybrid pre-submission chat handler — does NOT touch any Submission record.
 
-    Intent priority (descending):
-      1. small_talk  — greetings, courtesies, "who are you"
-      2. help        — queries about available services / forms
-      3. form_selection — matches a known form via INTENT_KEYWORDS
-      4. out_of_scope — anything else; politely redirected
+    Strategy:
+      1. If LLM is enabled → try LangGraph agent in CHAT state
+      2. If LLM succeeds → wrap agent response in ChatTurnResponse
+      3. If LLM fails or is disabled → use keyword-based fallback
 
     The function is READ-ONLY on the database (queries Bank/Form, never writes).
-    All response texts are drawn from pre-defined constants — no free LLM output.
 
     Args:
         user_id: Authenticated user ID (for logging only)
@@ -248,13 +409,121 @@ def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnRespon
         db:       Database session
 
     Returns:
-        ChatTurnResponse with intent tag and canned reply
+        ChatTurnResponse with intent tag and reply
     """
-    normalised = message.lower().strip()
     logger.info(f"Chat turn: user={user_id} (message content redacted)")
 
+    # --- Try LLM agent first -----------------------------------------------
+    if _is_llm_enabled():
+        llm_chat = _try_llm_chat(user_id, message, db)
+        if llm_chat is not None:
+            return llm_chat
+        logger.info(f"LLM chat fallback for user={user_id} — using keywords")
+
+    # --- Keyword-based fallback --------------------------------------------
+    return _keyword_chat_turn(user_id, message, db)
+
+
+def _try_llm_chat(
+    user_id: int,
+    message: str,
+    db: Session,
+) -> Optional["ChatTurnResponse"]:
+    """
+    Attempt to handle the chat turn via the LangGraph AI agent.
+
+    The agent runs in CHAT state (no submission_id).  Returns a
+    ChatTurnResponse on success, or None to signal fallback.
+    """
+    try:
+        from app.services.ai_agent_service import (
+            invoke_agent,
+            get_last_agent_message,
+        )
+
+        result = invoke_agent(
+            user_id=user_id,
+            user_message=message,
+            conversation_state=ConversationState.CHAT,
+            submission_id=None,
+            thread_id=f"chat_{user_id}",
+        )
+
+        if result.get("error"):
+            logger.warning(
+                f"LLM chat error for user={user_id}: {result['error']}"
+            )
+            return None
+
+        agent_message = get_last_agent_message(result)
+        if not agent_message:
+            return None
+
+        # Classify intent from the LLM result for backward compatibility
+        # (the frontend may rely on intent tags)
+        intent = _classify_intent_from_message(message)
+
+        # If help intent, also fetch forms for the response
+        available_forms = []
+        if intent in ("help", "form_selection"):
+            forms = _get_all_active_forms(db)
+            available_forms = [FormListItem.model_validate(f) for f in forms]
+
+        logger.info(f"LLM chat success: user={user_id} intent={intent}")
+        return ChatTurnResponse(
+            message=agent_message,
+            intent=intent,
+            available_forms=available_forms,
+        )
+
+    except Exception as exc:
+        logger.error(
+            f"LLM chat failed for user={user_id}: {exc}", exc_info=True
+        )
+        return None
+
+
+def _classify_intent_from_message(message: str) -> str:
+    """
+    Quick keyword-based intent classification for backward-compatible
+    intent tags when the LLM handles the response text.
+
+    This does NOT generate the reply — just determines the intent tag
+    so the frontend can show appropriate UI (e.g. form cards on 'help').
+    """
+    normalised = message.lower().strip()
+
+    if any(trigger in normalised for trigger in SMALL_TALK_TRIGGERS):
+        return "small_talk"
+    if any(trigger in normalised for trigger in HELP_TRIGGERS):
+        return "help"
+
+    # Check form-selection keywords
+    for form_code, keywords in INTENT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in normalised:
+                return "form_selection"
+
+    return "out_of_scope"
+
+
+def _keyword_chat_turn(
+    user_id: int, message: str, db: Session
+) -> "ChatTurnResponse":
+    """
+    Original keyword-based chat handler — deterministic fallback.
+
+    Intent priority (descending):
+      1. small_talk  — greetings, courtesies, "who are you"
+      2. help        — queries about available services / forms
+      3. form_selection — matches a known form via INTENT_KEYWORDS
+      4. out_of_scope — anything else; politely redirected
+
+    All response texts are drawn from pre-defined constants.
+    """
+    normalised = message.lower().strip()
+
     # ── 1. Small-talk ─────────────────────────────────────────────────────────
-    # Check exact match OR substring match for multi-word triggers
     if any(trigger in normalised for trigger in SMALL_TALK_TRIGGERS):
         logger.info(f"Chat intent=small_talk user={user_id}")
         return ChatTurnResponse(message=_SMALL_TALK_REPLY, intent="small_talk")
@@ -275,7 +544,6 @@ def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnRespon
         )
 
     # ── 3. Form-selection intent ───────────────────────────────────────────────
-    # Reuse existing keyword matching — find the first active bank's forms
     forms = _get_all_active_forms(db)
     matched_form = _detect_form_intent_from_all_banks(normalised, db)
     if matched_form:

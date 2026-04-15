@@ -13,7 +13,7 @@ from datetime import datetime
 import uvicorn
 import os
 
-from app.core.config import settings
+from app.core.config import settings, llm_settings
 from app.core.logging import setup_logging, get_logger, set_correlation_id
 from app.api.v1 import kyc, auth, forms, submissions, conversation, admin
 
@@ -106,6 +106,13 @@ async def startup_event():
     finally:
         db.close()
     logger.info("Application started successfully")
+    if llm_settings.is_configured:
+        logger.info(
+            f"LLM enabled: provider={llm_settings.LLM_PROVIDER}, "
+            f"model={llm_settings.LLM_MODEL}"
+        )
+    else:
+        logger.info("LLM not configured — using keyword-based conversation agent")
 
 
 @app.on_event("shutdown")

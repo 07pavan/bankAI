@@ -4,7 +4,7 @@ Loads environment variables and provides centralized settings
 """
 
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -44,5 +44,31 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 
-# Global settings instance
+class LLMSettings(BaseSettings):
+    """LLM / LangGraph configuration — all fields optional for backward compat"""
+
+    LLM_PROVIDER: str = "xai"
+    LLM_API_KEY: Optional[str] = None
+    LLM_MODEL: str = "grok-3-mini"
+    LLM_TEMPERATURE: float = 0.3
+    LANGGRAPH_CHECKPOINT_DB: Optional[str] = None
+
+    @property
+    def is_configured(self) -> bool:
+        """True when an API key is present, i.e. LLM features are enabled"""
+        return bool(self.LLM_API_KEY)
+
+    @property
+    def checkpoint_db_url(self) -> str:
+        """Checkpoint DB URL — falls back to the main DATABASE_URL"""
+        return self.LANGGRAPH_CHECKPOINT_DB or settings.DATABASE_URL
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+        extra = "ignore"
+
+
+# Global settings instances
 settings = Settings()
+llm_settings = LLMSettings()

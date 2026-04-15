@@ -645,3 +645,116 @@ class TestEndpointIntegration:
         data = resp.json()
         assert data["intent"] == "small_talk"
         assert "BankAI" in data["message"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Test 7: RAG Context Retrieval
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRAGContext:
+    """
+    Test the SQL-based RAG module — form/field context retrieval and
+    banking FAQ keyword matching.
+    """
+
+    def test_all_forms_summary_contains_labels(self, db_session: Session):
+        """get_all_forms_summary includes form names and field counts."""
+        from app.core.rag import get_all_forms_summary
+
+        seed_bank_and_form(db_session)
+
+        result = get_all_forms_summary(db_session)
+
+        assert "AI Agent Test Form" in result
+        assert "SBI" in result or "State Bank" in result
+        # Should mention field count
+        assert "2" in result  # 2 fields seeded
+
+    def test_form_context_contains_field_details(self, db_session: Session):
+        """get_form_context includes field labels, types, and validation."""
+        from app.core.rag import get_form_context
+
+        _, form_id = seed_bank_and_form(db_session)
+
+        result = get_form_context(form_id, db_session)
+
+        assert "Full Name" in result
+        assert "full_name" in result
+        assert "Mobile Number" in result
+        assert "text" in result
+        assert "Required: Yes" in result
+        # Validation rules should be included
+        assert "min_length" in result.lower() or "Min length" in result
+
+    def test_field_context_includes_hints(self, db_session: Session):
+        """get_field_context returns field metadata and guidance hints."""
+        from app.core.rag import get_field_context
+
+        _, form_id = seed_bank_and_form(db_session)
+
+        result = get_field_context(form_id, "mobile", db_session)
+
+        assert "Mobile Number" in result
+        assert "mobile" in result
+        assert "10-digit" in result or "10" in result
+        assert "Guidance" in result or "Agent" in result
+
+    def test_field_context_nonexistent(self, db_session: Session):
+        """get_field_context returns fallback for unknown field_key."""
+        from app.core.rag import get_field_context
+
+        _, form_id = seed_bank_and_form(db_session)
+
+        result = get_field_context(form_id, "nonexistent", db_session)
+        assert "not found" in result.lower()
+
+    def test_banking_faq_keyword_match(self):
+        """get_banking_faq_context returns relevant FAQ for keyword queries."""
+        from app.core.rag import get_banking_faq_context
+
+        # Query about address mismatch
+        result = get_banking_faq_context("my address is different from aadhaar")
+        assert "address" in result.lower()
+        assert "Aadhaar" in result or "aadhaar" in result
+
+        # Query about documents
+        result = get_banking_faq_context("what documents do I need")
+        assert "document" in result.lower()
+        assert "proof" in result.lower() or "Aadhaar" in result
+
+    def test_banking_faq_no_match_returns_full(self):
+        """get_banking_faq_context returns full FAQ when no keywords match."""
+        from app.core.rag import get_banking_faq_context
+
+        result = get_banking_faq_context("xyzzy gibberish no match")
+        # Should return the general FAQ
+        assert "FAQ" in result
+        assert len(result) > 200  # Should be a substantial block
+
+    def test_banking_faq_none_query_returns_full(self):
+        """get_banking_faq_context with None returns full FAQ."""
+        from app.core.rag import get_banking_faq_context
+
+        result = get_banking_faq_context(None)
+        assert "FAQ" in result
+
+    def test_build_rag_context_chat_state(self, db_session: Session):
+        """_build_rag_context returns form summary for CHAT state."""
+        from app.services.ai_agent_service import _build_rag_context
+
+        seed_bank_and_form(db_session)
+
+        state = {
+            "messages": [],
+            "conversation_state": "chat",
+            "user_id": 1,
+            "submission_id": None,
+            "current_field": None,
+            "form_id": None,
+            "error": None,
+        }
+
+        result = _build_rag_context(state, user_message="hello")
+        assert result is not None
+        assert "AI Agent Test Form" in result or "FAQ" in result
+

@@ -71,6 +71,12 @@ from app.core.logging import get_logger
 from app.models import ConversationState
 from app import database as app_db
 from app.services.ai_agent_tools import ALL_TOOLS
+from app.core.rag import (
+    get_all_forms_summary,
+    get_form_context,
+    get_field_context,
+    get_banking_faq_context,
+)
 
 logger = get_logger()
 
@@ -252,8 +258,20 @@ _STATE_PROMPTS: dict[str, str] = {
 }
 
 
-def _build_system_message(state: AgentState) -> SystemMessage:
-    """Build the full system prompt with state-specific instructions."""
+def _build_system_message(
+    state: AgentState,
+    rag_context: Optional[str] = None,
+) -> SystemMessage:
+    """
+    Build the full system prompt with state-specific instructions
+    and optional RAG context.
+
+    Args:
+        state:       Current AgentState dict.
+        rag_context: Optional form/FAQ context from the RAG module.
+                     Appended to the prompt so the LLM can reference
+                     field metadata, validation rules, and banking FAQ.
+    """
     conv_state = state.get("conversation_state", ConversationState.CHAT)
     state_prompt = _STATE_PROMPTS.get(conv_state, _STATE_PROMPTS[ConversationState.CHAT])
 
@@ -263,7 +281,20 @@ def _build_system_message(state: AgentState) -> SystemMessage:
         current_field=state.get("current_field", "unknown"),
     )
 
-    return SystemMessage(content=SYSTEM_PROMPT + state_prompt)
+    full_prompt = SYSTEM_PROMPT + state_prompt
+
+    # Append RAG context if provided
+    if rag_context:
+        full_prompt += (
+            "\n\n--- FORM CONTEXT AND BANKING RULES ---\n"
+            "Use the following information to answer user questions, "
+            "explain fields, and guide them through the form. Do NOT "
+            "invent information — only use what is provided below.\n\n"
+            f"{rag_context}\n"
+            "--- END CONTEXT ---\n"
+        )
+
+    return SystemMessage(content=full_prompt)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -319,42 +350,95 @@ def _get_llm_with_tools():
 # 5. State nodes — full implementations
 # ═══════════════════════════════════════════════════════════════════════════
 
-# ── RAG placeholder ──────────────────────────────────────────────────
-# def rag_retriever_node(state: AgentState) -> dict:
-#     """
-#     RAG retriever node — injects relevant banking FAQ / policy context.
-#
-#     This node would:
-#       1. Extract the latest user message from state["messages"].
-#       2. Query a VectorStoreRetriever (Pinecone / PGVector) with the
-#          message text to find top-k relevant documents.
-#       3. Format retrieved docs as a SystemMessage addendum.
-#       4. Append the SystemMessage to state["messages"].
-#       5. Return — the next node (state node) will see the extra context.
-#
-#     Example integration:
-#         from langchain_community.vectorstores import PGVector
-#         from langchain_xai import XAIEmbeddings
-#
-#         embeddings = XAIEmbeddings(model="v1", api_key=...)
-#         vectorstore = PGVector(
-#             connection_string=settings.DATABASE_URL,
-#             collection_name="banking_faq",
-#             embedding_function=embeddings,
-#         )
-#         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-#
-#         last_msg = state["messages"][-1].content
-#         docs = retriever.invoke(last_msg)
-#         context = "\n\n".join(d.page_content for d in docs)
-#
-#         return {
-#             "messages": [
-#                 SystemMessage(content=f"RELEVANT CONTEXT:\n{context}")
-#             ]
-#         }
-#     """
-#     pass
+# ── RAG context builder ──────────────────────────────────────────────
+
+def _extract_last_human_message(state: AgentState) -> Optional[str]:
+    """Extract the text content of the last HumanMessage from state."""
+    for msg in reversed(state.get("messages", [])):
+        if isinstance(msg, HumanMessage) and msg.content:
+            return msg.content
+    return None
+
+def _build_rag_context(
+    state: AgentState,
+    user_message: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Fetch relevant RAG context based on the current conversation state.
+
+    Decides what context to retrieve:
+      - CHAT / WELCOME / SELECT_APPLICATION → form summaries + FAQ
+      - FILLING_FORM → current field details + relevant FAQ
+      - REVIEW → form summary (for readback support)
+      - COMPLETE → None (no context needed)
+
+    Uses a scoped DB session via app_db.SessionLocal() (lazy import
+    pattern compatible with test fixtures).
+
+    Args:
+        state:        Current AgentState dict.
+        user_message: Raw user message for FAQ keyword matching.
+
+    Returns:
+        Formatted context string, or None if no context is available.
+    """
+    conv_state = state.get("conversation_state", ConversationState.CHAT)
+    parts: list[str] = []
+
+    try:
+        db = app_db.SessionLocal()
+        try:
+            if conv_state in (
+                ConversationState.CHAT,
+                ConversationState.WELCOME,
+                ConversationState.SELECT_APPLICATION,
+            ):
+                # Provide form overview so LLM can describe available services
+                summary = get_all_forms_summary(db)
+                if summary:
+                    parts.append(summary)
+
+            elif conv_state == ConversationState.FILLING_FORM:
+                form_id = state.get("form_id")
+                current_field = state.get("current_field")
+
+                if form_id and current_field:
+                    # Detailed context for the specific field being asked
+                    field_ctx = get_field_context(form_id, current_field, db)
+                    if field_ctx:
+                        parts.append(field_ctx)
+                elif form_id:
+                    # Full form structure if no specific field yet
+                    form_ctx = get_form_context(form_id, db)
+                    if form_ctx:
+                        parts.append(form_ctx)
+
+            elif conv_state == ConversationState.REVIEW:
+                form_id = state.get("form_id")
+                if form_id:
+                    form_ctx = get_form_context(form_id, db)
+                    if form_ctx:
+                        parts.append(form_ctx)
+
+        finally:
+            db.close()
+
+        # Always try to add relevant FAQ context
+        if user_message:
+            faq = get_banking_faq_context(user_message)
+            if faq:
+                parts.append(faq)
+
+    except Exception as exc:
+        logger.warning(f"RAG context retrieval failed: {exc}")
+        # Non-fatal — the LLM works without context, just less informed
+        return None
+
+    if not parts:
+        return None
+
+    return "\n\n".join(parts)
+
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -369,15 +453,28 @@ def chat_node(state: AgentState) -> dict:
       - Detect form-selection intent and ask user to confirm.
       - NEVER start filling a form (no submission_id exists yet).
 
-    The LLM may emit tool calls (get_available_forms, get_kyc_status).
+    RAG: Injects forms summary + relevant FAQ so the LLM can answer
+    questions like "what documents do I need?" without tool calls.
+
+    The LLM may still emit tool calls (get_available_forms, get_kyc_status).
     """
+    # Extract user message for FAQ matching
+    user_msg = _extract_last_human_message(state)
+
+    # Fetch RAG context — forms summary + relevant FAQ
+    rag_context = _build_rag_context(state, user_message=user_msg)
+
     llm = _get_llm_with_tools()
-    system = _build_system_message(state)
+    system = _build_system_message(state, rag_context=rag_context)
     messages = [system] + list(state["messages"])
 
     response = llm.invoke(messages)
 
-    logger.info(f"chat_node: user={state.get('user_id')} response_type={'tool_call' if response.tool_calls else 'text'}")
+    logger.info(
+        f"chat_node: user={state.get('user_id')} "
+        f"rag={'yes' if rag_context else 'no'} "
+        f"response_type={'tool_call' if response.tool_calls else 'text'}"
+    )
     return {"messages": [response], "error": None}
 
 
@@ -441,14 +538,24 @@ def filling_form_node(state: AgentState) -> dict:
       4. After saving → call get_next_field for the next field.
       5. If all done → inform the user and request review.
 
+    RAG: Injects detailed field metadata (label, type, validation,
+    options, hints) so the LLM can ask informed questions and guide
+    the user on valid input formats.
+
     The LLM uses the ReAct loop (LLM → tools → LLM → ...) to handle
     multi-step tool interactions within a single turn.
 
     State transition: FILLING_FORM → REVIEW (when all fields are done,
     detected from get_next_field response).
     """
+    # Extract user message for FAQ matching
+    user_msg = _extract_last_human_message(state)
+
+    # Fetch RAG context — current field details + relevant FAQ
+    rag_context = _build_rag_context(state, user_message=user_msg)
+
     llm = _get_llm_with_tools()
-    system = _build_system_message(state)
+    system = _build_system_message(state, rag_context=rag_context)
     messages = [system] + list(state["messages"])
 
     response = llm.invoke(messages)

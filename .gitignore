@@ -17,6 +17,10 @@ logs/
 # Selfie uploads
 backend/selfies/
 
+# Signatures & PDFs (contain user PII — never commit)
+backend/signatures/
+backend/pdfs/
+
 # Python cache
 __pycache__/
 *.pyc

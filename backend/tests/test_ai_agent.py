@@ -341,13 +341,14 @@ class TestStateMachineTransitions:
         assert validate_transition("welcome", "select_application") == "select_application"
         assert validate_transition("select_application", "filling_form") == "filling_form"
         assert validate_transition("filling_form", "review") == "review"
-        assert validate_transition("review", "complete") == "complete"
+        assert validate_transition("review", "signature") == "signature"
+        assert validate_transition("signature", "complete") == "complete"
 
     def test_validate_transition_allows_self(self):
         """Staying in the same state is always allowed."""
         from app.services.ai_agent_service import validate_transition
 
-        for state in ["chat", "welcome", "select_application", "filling_form", "review", "complete"]:
+        for state in ["chat", "welcome", "select_application", "filling_form", "review", "signature", "complete"]:
             assert validate_transition(state, state) == state
 
     def test_validate_transition_blocks_skip(self):
@@ -384,17 +385,17 @@ class TestStateMachineTransitions:
         """Every ConversationState value has an entry in ALLOWED_TRANSITIONS."""
         from app.services.ai_agent_service import ALLOWED_TRANSITIONS
 
-        expected_states = {"chat", "welcome", "select_application", "filling_form", "review", "complete"}
+        expected_states = {"chat", "welcome", "select_application", "filling_form", "review", "signature", "complete"}
         assert set(ALLOWED_TRANSITIONS.keys()) == expected_states
 
     def test_state_to_node_map_completeness(self):
         """Every ConversationState value has a node mapping."""
         from app.services.ai_agent_service import STATE_TO_NODE
 
-        expected_states = {"chat", "welcome", "select_application", "filling_form", "review", "complete"}
+        expected_states = {"chat", "welcome", "select_application", "filling_form", "review", "signature", "complete"}
         assert set(STATE_TO_NODE.keys()) == expected_states
         # All node names should be unique strings
-        assert len(set(STATE_TO_NODE.values())) == 6
+        assert len(set(STATE_TO_NODE.values())) == 7
 
 
 # ═══════════════════════════════════════════════════════════════════════════

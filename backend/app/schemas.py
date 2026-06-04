@@ -164,6 +164,10 @@ class SubmissionOut(BaseModel):
     form_id: int
     status: str
     current_field_index: int
+    conversation_state: Optional[str] = None
+    signature_path: Optional[str] = None
+    pdf_path: Optional[str] = None
+    signed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     data: list[SubmissionDataOut] = []
@@ -176,6 +180,22 @@ class SubmissionProgress(BaseModel):
     total_fields: int
     status: str
     current_field: Optional[FormFieldOut] = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Signature & PDF schemas
+# ---------------------------------------------------------------------------
+
+class SignatureUploadRequest(BaseModel):
+    """Upload a base64-encoded signature image."""
+    image: str  # base64 string (with or without data URL prefix)
+
+
+class SignatureUploadResponse(BaseModel):
+    """Response after successful signature upload."""
+    submission_id: int
+    message: str = "Signature saved successfully."
+    signed_at: str
 
 
 # ---------------------------------------------------------------------------

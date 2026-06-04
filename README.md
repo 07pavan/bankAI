@@ -25,11 +25,13 @@
 | Feature | Description |
 |---------|-------------|
 | 🔐 **KYC Verification** | Camera-based Aadhaar & PAN scanning with Tesseract.js OCR + live selfie capture |
-| 🤖 **AI Voice Agent** | Conversational interface that walks users through bank application forms via voice or text |
+| 🤖 **LangGraph AI Agent** | New LangGraph-powered conversational agent with xAI/Grok LLM, PII redaction, and hybrid fallback |
+| 🗣️ **AI Voice Agent** | Conversational interface that walks users through bank application forms via voice or text |
 | 🏛️ **Admin Panel** | Full CRUD for banks, forms, fields, sections, and submission management |
 | 🛡️ **Field-Level Encryption** | Aadhaar/PAN encrypted at rest with Fernet (AES-128 CBC) + SHA-256 hashing |
 | 🗃️ **Dynamic Form Engine** | DB-driven forms with configurable fields, sections, validation rules, and options |
 | 📊 **Submission Tracking** | State machine–driven form submissions with resume-from-where-you-left-off |
+| 🗂️ **RAG Context** | Retrieval-augmented generation for form fields, hints, and banking FAQs |
 
 ---
 

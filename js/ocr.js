@@ -36,7 +36,7 @@ const OCRModule = (() => {
         onProgress && onProgress(5);
         const text1 = await recognize(originalDataUrl, (p) => onProgress && onProgress(Math.round(p * 0.3)));
         results.push(text1);
-        console.log('[OCR Pass 1 - Raw]', text1);
+
 
         const extracted1 = extractAadhaar(text1);
         if (extracted1) return { text: text1, number: extracted1 };
@@ -48,7 +48,7 @@ const OCRModule = (() => {
         const preprocessed1 = CameraModule.preprocessForOCR(canvasEl);
         const text2 = await recognize(preprocessed1, (p) => onProgress && onProgress(35 + Math.round(p * 0.3)));
         results.push(text2);
-        console.log('[OCR Pass 2 - Threshold]', text2);
+
 
         const extracted2 = extractAadhaar(text2);
         if (extracted2) return { text: text2, number: extracted2 };
@@ -59,7 +59,7 @@ const OCRModule = (() => {
         const preprocessed2 = CameraModule.preprocessSimple(canvasEl);
         const text3 = await recognize(preprocessed2, (p) => onProgress && onProgress(70 + Math.round(p * 0.3)));
         results.push(text3);
-        console.log('[OCR Pass 3 - Contrast]', text3);
+
 
         const extracted3 = extractAadhaar(text3);
         if (extracted3) return { text: text3, number: extracted3 };
@@ -82,7 +82,7 @@ const OCRModule = (() => {
         onProgress && onProgress(5);
         const text1 = await recognize(originalDataUrl, (p) => onProgress && onProgress(Math.round(p * 0.3)));
         results.push(text1);
-        console.log('[OCR Pass 1 - Raw]', text1);
+
 
         const extracted1 = extractPAN(text1);
         if (extracted1) return { text: text1, number: extracted1 };
@@ -93,7 +93,7 @@ const OCRModule = (() => {
         const preprocessed1 = CameraModule.preprocessForOCR(canvasEl);
         const text2 = await recognize(preprocessed1, (p) => onProgress && onProgress(35 + Math.round(p * 0.3)));
         results.push(text2);
-        console.log('[OCR Pass 2 - Threshold]', text2);
+
 
         const extracted2 = extractPAN(text2);
         if (extracted2) return { text: text2, number: extracted2 };
@@ -104,7 +104,7 @@ const OCRModule = (() => {
         const preprocessed2 = CameraModule.preprocessSimple(canvasEl);
         const text3 = await recognize(preprocessed2, (p) => onProgress && onProgress(70 + Math.round(p * 0.3)));
         results.push(text3);
-        console.log('[OCR Pass 3 - Contrast]', text3);
+
 
         const extracted3 = extractPAN(text3);
         if (extracted3) return { text: text3, number: extracted3 };
@@ -121,7 +121,7 @@ const OCRModule = (() => {
      * Helper: draw a data URL image onto a canvas
      */
     function drawImageToCanvas(dataUrl, canvasEl) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const img = new Image();
             img.onload = () => {
                 canvasEl.width = img.width;
@@ -130,6 +130,7 @@ const OCRModule = (() => {
                 ctx.drawImage(img, 0, 0);
                 resolve();
             };
+            img.onerror = () => reject(new Error('Failed to load image for OCR preprocessing'));
             img.src = dataUrl;
         });
     }

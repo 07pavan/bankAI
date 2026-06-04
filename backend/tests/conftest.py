@@ -6,10 +6,11 @@ because app.database creates the engine at module load time.
 """
 
 import os
-# Override DATABASE_URL before importing any app module
-os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
-os.environ.setdefault("ENCRYPTION_KEY", "ymvd_FUwFxxgXOtibihMGmhdWIvLwe1fW5ze3aQ5_-8=")
+# Override DATABASE_URL and clear LLM API Key before importing any app module
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-testing-only"
+os.environ["ENCRYPTION_KEY"] = "ymvd_FUwFxxgXOtibihMGmhdWIvLwe1fW5ze3aQ5_-8="
+os.environ["LLM_API_KEY"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

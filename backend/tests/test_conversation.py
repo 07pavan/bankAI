@@ -259,10 +259,23 @@ class TestConversationFullFlow:
         # Now in REVIEW state — still in_progress
         assert r2.json()["status"] == "in_progress"
 
-        # Step 3: Confirm — triggers COMPLETE
+        # Step 3: Confirm — transitions to SIGNATURE (still in_progress)
         r3 = next_turn(client, sub_id, "confirm", token)
         assert r3.status_code == 200
-        assert r3.json()["status"] == "completed"
+        assert r3.json()["status"] == "in_progress"
+
+        # Step 4: Upload signature
+        sig_resp = client.post(
+            f"/api/v1/submissions/{sub_id}/signature",
+            json={"image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="},
+            headers=headers,
+        )
+        assert sig_resp.status_code == 200
+
+        # Step 5: Send any message to complete signature and trigger COMPLETE
+        r4 = next_turn(client, sub_id, "done", token)
+        assert r4.status_code == 200
+        assert r4.json()["status"] == "completed"
 
         # Verify submission is marked completed in DB
         get_resp = client.get(f"/api/v1/submissions/{sub_id}", headers=headers)

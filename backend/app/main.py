@@ -95,7 +95,7 @@ def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    """Startup event - verify database connection and seed defaults"""
+    """Startup event - verify database connection, seed defaults, init checkpointer"""
     from app.database import SessionLocal
     from app.core.seed import seed_defaults
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -105,6 +105,20 @@ async def startup_event():
         seed_defaults(db)
     finally:
         db.close()
+
+    # Initialise persistent conversation memory (PostgresSaver)
+    from app.core.checkpointer import init_checkpointer
+    init_checkpointer()
+
+    # Recompile the agent graph with the persistent checkpointer
+    if llm_settings.is_configured:
+        try:
+            from app.services.ai_agent_service import recompile_graph
+            recompile_graph()
+            logger.info("Agent graph recompiled with persistent checkpointer")
+        except Exception as exc:
+            logger.warning(f"Could not recompile agent graph: {exc}")
+
     logger.info("Application started successfully")
     if llm_settings.is_configured:
         logger.info(
@@ -117,7 +131,9 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Shutdown event"""
+    """Shutdown event — close persistent checkpointer connection"""
+    from app.core.checkpointer import shutdown_checkpointer
+    shutdown_checkpointer()
     logger.info("Application shutting down")
 
 

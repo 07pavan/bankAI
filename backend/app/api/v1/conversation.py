@@ -28,17 +28,84 @@ from app.database import get_db
 from app.core.security import get_current_user_id
 from app.core.logging import get_logger
 from app.services import conversation_service
-from app.services.ai_agent_service import (
-    invoke_agent,
-    get_last_agent_message,
-    is_llm_available,
-)
-from app.models import Submission, ConversationState
+from app.services.ai_agent_service import is_llm_available
+from app.models import ConversationState
 from app.schemas import FormListItem
 
 logger = get_logger()
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# GET /test — quick live test for the AI agent (no JWT required)
+# ---------------------------------------------------------------------------
+
+class TestResponse(BaseModel):
+    """Response from GET /conversation/test."""
+    reply: str
+    conversation_state: str
+    user_id: int
+    thread_id: str
+    llm_configured: bool
+    error: Optional[str] = None
+
+
+@router.get("/test", response_model=TestResponse, summary="Live AI agent test")
+def conversation_test(
+    message: str = "Hello, what can you help me with?",
+    user_id: int = 1,
+):
+    """
+    Quick test endpoint for the LangGraph AI agent.
+
+    No JWT required — intended for development/demo use only.
+    Calls invoke_agent() directly with the real LLM (no keyword fallback).
+
+    Try it:
+      GET /api/v1/conversation/test?message=hello&user_id=1
+      GET /api/v1/conversation/test?message=what+forms+are+available
+    """
+    thread_id = f"user_{user_id}"
+
+    if not is_llm_available():
+        return TestResponse(
+            reply="LLM is not configured. Set LLM_API_KEY in .env.",
+            conversation_state="chat",
+            user_id=user_id,
+            thread_id=thread_id,
+            llm_configured=False,
+            error="LLM_API_KEY not set",
+        )
+
+    # Lazy import — only the /test endpoint needs these directly
+    from app.services.ai_agent_service import invoke_agent, get_last_agent_message
+
+    result = invoke_agent(
+        user_id=user_id,
+        user_message=message,
+        conversation_state=ConversationState.CHAT,
+        submission_id=None,
+        thread_id=thread_id,
+    )
+
+    agent_reply = get_last_agent_message(result) or "No response from agent."
+    error = result.get("error")
+
+    logger.info(
+        f"Test endpoint: user={user_id} thread={thread_id} "
+        f"state={result.get('conversation_state', 'chat')} "
+        f"error={error}"
+    )
+
+    return TestResponse(
+        reply=agent_reply,
+        conversation_state=result.get("conversation_state", "chat"),
+        user_id=user_id,
+        thread_id=thread_id,
+        llm_configured=True,
+        error=error,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +169,8 @@ class ConversationNextResponse(BaseModel):
     next_question: str          # The agent's next prompt (or completion message)
     field_key: Optional[str] = None  # Field that was just answered (None when complete)
     status: str                 # "in_progress" | "completed"
+    current_field_index: Optional[int] = None  # For frontend progress bar
+    total_fields: Optional[int] = None         # For frontend progress bar
 
 
 # ---------------------------------------------------------------------------
@@ -117,111 +186,43 @@ def conversation_next(
     """
     Process one turn of the voice conversation.
 
-    The frontend sends the user's voice transcript; this endpoint:
-      1. Reads submission.conversation_state (backend is sole authority)
-      2. Delegates to the LangGraph AI agent (if configured) or the
-         keyword-based conversation_service (fallback)
-      3. Syncs the agent's returned state back to the DB
-      4. Returns the next question to ask (or a completion message)
+    The frontend sends the user's voice transcript; this endpoint
+    delegates to conversation_service.handle_conversation_turn() which
+    uses a hybrid strategy:
+      - If LLM is configured → tries the LangGraph AI agent first
+      - If LLM fails or is disabled → keyword-based fallback (zero-config)
 
-    LLM Strategy:
-      - If LLM_API_KEY is set → LangGraph agent (natural language)
-      - If not → keyword-based conversation_service (zero-config)
+    The backend is the single source of truth for state transitions.
+    The route never duplicates the LLM invocation logic — that lives
+    exclusively in conversation_service.
 
     Status values:
       - "in_progress"  — more fields remain or awaiting review confirmation
       - "completed"    — all required fields answered, submission finalised
-
-    Response format is backward-compatible regardless of which engine
-    processes the turn.
     """
-    # --- Fallback path: keyword-based conversation_service -----------------
-    if not is_llm_available():
-        logger.info(
-            f"LLM not configured — using keyword fallback for "
-            f"submission={payload.submission_id} user={user_id}"
-        )
-        turn = conversation_service.handle_conversation_turn(
-            submission_id=payload.submission_id,
-            user_id=user_id,
-            message=payload.message,
-            db=db,
-        )
-        return ConversationNextResponse(
-            next_question=turn.agent_message,
-            field_key=turn.field_key,
-            status="completed" if turn.is_complete else "in_progress",
-        )
-
-    # --- LLM path: LangGraph AI agent -------------------------------------
-
-    # 1. Load the submission to get current state (backend is authority)
-    sub = db.query(Submission).filter(
-        Submission.id == payload.submission_id,
-        Submission.user_id == user_id,
-    ).first()
-
-    if not sub:
-        return ConversationNextResponse(
-            next_question="Submission not found or access denied.",
-            field_key=None,
-            status="in_progress",
-        )
-
     logger.info(
-        f"LLM agent turn: submission={sub.id} user={user_id} "
-        f"state={sub.conversation_state} field_idx={sub.current_field_index}"
+        f"Conversation turn: submission={payload.submission_id} "
+        f"user={user_id} llm_available={is_llm_available()}"
     )
 
-    # 2. Invoke the LangGraph agent
-    result = invoke_agent(
+    turn = conversation_service.handle_conversation_turn(
+        submission_id=payload.submission_id,
         user_id=user_id,
-        user_message=payload.message,
-        conversation_state=sub.conversation_state,
-        submission_id=sub.id,
-        current_field=None,  # Agent will call get_next_field
-        form_id=sub.form_id,
-        thread_id=f"submission_{sub.id}",
+        message=payload.message,
+        db=db,
     )
 
-    # 3. Extract the agent's text response
-    agent_message = get_last_agent_message(result)
-    if not agent_message:
-        agent_message = "I'm processing your request. Could you please repeat that?"
+    # Extract progress fields if available
+    current_idx = None
+    total = None
+    if turn.progress:
+        current_idx = turn.progress.current_field_index
+        total = turn.progress.total_fields
 
-    # 4. Determine completion and field_key from agent result
-    new_conv_state = result.get("conversation_state", sub.conversation_state)
-    is_complete = new_conv_state == ConversationState.COMPLETE
-    field_key = result.get("current_field")
-
-    # 5. Sync agent state back to DB (backend stays authoritative)
-    state_changed = sub.conversation_state != new_conv_state
-
-    if state_changed:
-        sub.conversation_state = new_conv_state
-        logger.info(
-            f"DB sync: submission {sub.id} conversation_state "
-            f"→ {new_conv_state}"
-        )
-
-    # If there was an error, log it but don't expose raw details
-    if result.get("error"):
-        logger.warning(
-            f"Agent returned error for submission {sub.id}: "
-            f"{result['error']}"
-        )
-
-    db.commit()
-    db.refresh(sub)
-
-    logger.info(
-        f"Turn complete: submission={sub.id} state={sub.conversation_state} "
-        f"is_complete={is_complete} field_key={field_key}"
-    )
-
-    # 6. Return backward-compatible response
     return ConversationNextResponse(
-        next_question=agent_message,
-        field_key=field_key,
-        status="completed" if is_complete else "in_progress",
+        next_question=turn.agent_message,
+        field_key=turn.field_key,
+        status="completed" if turn.is_complete else "in_progress",
+        current_field_index=current_idx,
+        total_fields=total,
     )

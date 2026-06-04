@@ -209,7 +209,7 @@ class ConversationState(str, enum.Enum):
     Voice agent state machine states.
 
     Transitions (enforced by conversation_service):
-      WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → COMPLETE
+      WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → SIGNATURE → COMPLETE
 
     The backend is the single source of truth for state.
     The AI reads this state and generates the appropriate prompt;
@@ -219,6 +219,7 @@ class ConversationState(str, enum.Enum):
     SELECT_APPLICATION = "select_application"
     FILLING_FORM = "filling_form"
     REVIEW = "review"
+    SIGNATURE = "signature"  # Awaiting user signature capture before completion
     COMPLETE = "complete"
     CHAT = "chat"   # Pre-submission dashboard chat mode (greeting / small-talk / help)
 
@@ -241,6 +242,11 @@ class Submission(Base):
         default=ConversationState.FILLING_FORM,
         nullable=False,
     )
+    # Signature & PDF artifacts (added Phase 3)
+    signature_path = Column(String(500), nullable=True)   # Path to saved signature PNG
+    pdf_path = Column(String(500), nullable=True)          # Path to generated application PDF
+    signed_at = Column(DateTime(timezone=True), nullable=True)  # When signature was captured
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

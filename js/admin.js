@@ -8,7 +8,7 @@ const API = '/api/v1/admin';
 // ────────────────────────────────────────────────────────────────────────────
 // State
 // ────────────────────────────────────────────────────────────────────────────
-let adminToken = localStorage.getItem('adminToken');
+let adminToken = sessionStorage.getItem('adminToken');
 let allBanks = [];       // [{id, name, code, is_active}]
 let selectedFormId = null;
 let editingFormId = null;
@@ -44,7 +44,7 @@ async function tryBootstrap() {
         document.getElementById('adminUserPill').textContent = '⬤ Admin';
     } catch (e) {
         adminToken = null;
-        localStorage.removeItem('adminToken');
+        sessionStorage.removeItem('adminToken');
         document.getElementById('authOverlay').style.display = 'flex';
         document.getElementById('authError').style.display = 'block';
         document.getElementById('authError').textContent = 'Token expired or not admin. Please re-enter.';
@@ -55,14 +55,14 @@ async function submitToken() {
     const raw = document.getElementById('tokenInput').value.trim();
     if (!raw) { showToast('Paste a JWT token first', 'error'); return; }
     adminToken = raw;
-    localStorage.setItem('adminToken', raw);
+    sessionStorage.setItem('adminToken', raw);
     document.getElementById('authError').style.display = 'none';
     await tryBootstrap();
 }
 
 function logout() {
     adminToken = null;
-    localStorage.removeItem('adminToken');
+    sessionStorage.removeItem('adminToken');
     location.reload();
 }
 
@@ -522,13 +522,9 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 // Toast
 // ────────────────────────────────────────────────────────────────────────────
 function showToast(msg, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const icon = type === 'success' ? '✅' : '❌';
-    const t = document.createElement('div');
-    t.className = `toast ${type}`;
-    t.innerHTML = `<span>${icon}</span> ${esc(msg)}`;
-    container.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(60px)'; t.style.transition = 'all .3s'; setTimeout(() => t.remove(), 320); }, 3500);
+    // Delegate to shared toast system
+    const mappedType = type === 'success' ? 'success' : 'error';
+    BankAI_Toast.show(msg, mappedType);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -551,7 +547,7 @@ async function handleError(res) {
     showToast(msg, 'error');
     if (res.status === 401 || res.status === 403) {
         adminToken = null;
-        localStorage.removeItem('adminToken');
+        sessionStorage.removeItem('adminToken');
         setTimeout(() => location.reload(), 1500);
     }
 }

@@ -12,7 +12,7 @@ Hybrid Mode (controlled by USE_LLM_AGENT flag):
     → Deterministic keyword-based logic (original behaviour, zero-cost)
 
 State Machine (backend is sole authority — both modes enforce this):
-  CHAT → WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → COMPLETE
+  CHAT → WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → SIGNATURE → COMPLETE
 
 Pre-submission Chat Mode (CHAT):
   Stateless — never reads/writes any Submission record.
@@ -317,6 +317,8 @@ def _keyword_conversation_turn(
         return _handle_filling_form(sub, message, user_id, db)
     elif state == ConversationState.REVIEW:
         return _handle_review(sub, message, user_id, db)
+    elif state == ConversationState.SIGNATURE:
+        return _handle_signature(sub, message, user_id, db)
     elif state == ConversationState.COMPLETE:
         return ConversationTurnResponse(
             submission_id=submission_id,
@@ -688,8 +690,8 @@ def _handle_review(
     words = set(normalised.split())
 
     if words & CONFIRMATION_WORDS:
-        # User confirmed — complete the submission
-        return _transition_to_complete(sub, user_id, db)
+        # User confirmed — transition to SIGNATURE for signing before completion
+        return _transition_to_signature(sub, db)
 
     if words & REJECTION_WORDS:
         # User wants to change something — restart from field 0
@@ -739,6 +741,59 @@ def _transition_to_review(sub: Submission, db: Session) -> ConversationTurnRespo
     )
 
 
+def _transition_to_signature(sub: Submission, db: Session) -> ConversationTurnResponse:
+    """Move submission to SIGNATURE state — awaiting user's signature."""
+    sub.conversation_state = ConversationState.SIGNATURE
+    db.commit()
+    db.refresh(sub)
+    logger.info(f"Submission {sub.id} transitioned to SIGNATURE state")
+
+    return ConversationTurnResponse(
+        submission_id=sub.id,
+        agent_message=(
+            "Almost done! Before submitting, please provide your signature. "
+            "Use the signature pad that has appeared to draw your signature, "
+            "then tap 'Save Signature'."
+        ),
+        is_complete=False,
+        progress=_build_progress(sub, db),
+    )
+
+
+def _handle_signature(
+    sub: Submission,
+    message: str,
+    user_id: int,
+    db: Session,
+) -> ConversationTurnResponse:
+    """
+    SIGNATURE state handler.
+
+    The frontend handles the actual signature capture via the REST endpoint.
+    This handler responds to text/voice messages while in SIGNATURE state:
+      - If signature already captured (signed_at set) → complete the submission.
+      - Otherwise → remind user to sign via the signature pad.
+    """
+    # Refresh from DB to check if signature was uploaded via REST endpoint
+    db.refresh(sub)
+
+    if sub.signed_at and sub.signature_path:
+        # Signature captured — proceed to complete
+        return _transition_to_complete(sub, user_id, db)
+
+    # Signature not yet captured — prompt again
+    return ConversationTurnResponse(
+        submission_id=sub.id,
+        agent_message=(
+            "I'm waiting for your signature. Please use the signature pad "
+            "on screen to draw your signature, then tap 'Save Signature'. "
+            "This is required before we can submit your application."
+        ),
+        is_complete=False,
+        progress=_build_progress(sub, db),
+    )
+
+
 def _transition_to_complete(sub: Submission, user_id: int, db: Session) -> ConversationTurnResponse:
     """Validate required fields and mark submission as COMPLETE."""
     completed = submission_service.complete_submission(sub.id, user_id, db)
@@ -750,7 +805,8 @@ def _transition_to_complete(sub: Submission, user_id: int, db: Session) -> Conve
     return ConversationTurnResponse(
         submission_id=sub.id,
         agent_message=(
-            "Your application has been submitted successfully! "
+            "Your application has been submitted successfully! 🎉 "
+            "Your PDF is ready for download. "
             "Our team will review it and contact you shortly. Thank you!"
         ),
         is_complete=True,

@@ -7,7 +7,7 @@ understanding while keeping the backend as the **single source of truth**
 for all state transitions.
 
 State Machine (identical to conversation_service — never skipped):
-  CHAT → WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → COMPLETE
+  CHAT → WELCOME → SELECT_APPLICATION → FILLING_FORM → REVIEW → SIGNATURE → COMPLETE
 
 Security guarantees:
   - All user messages are PII-redacted before reaching the LLM.
@@ -63,7 +63,6 @@ from langchain_core.messages import (
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.core.config import llm_settings
 from app.core.llm_redaction import redact_pii, should_redact_before_llm
@@ -250,6 +249,18 @@ _STATE_PROMPTS: dict[str, str] = {
         "6. If unclear, re-read the summary and ask again.\n"
     ),
 
+    ConversationState.SIGNATURE: (
+        "\nCURRENT STATE: SIGNATURE.\n"
+        "Active submission_id: {submission_id}\n\n"
+        "INSTRUCTIONS:\n"
+        "1. The user needs to provide their signature via the UI signature pad.\n"
+        "2. Do NOT accept text as a signature — the frontend handles capture.\n"
+        "3. If the user sends any message, remind them to use the signature pad.\n"
+        "4. Once the signature is saved (checked by the backend), the submission\n"
+        "   will automatically transition to COMPLETE.\n"
+        "5. Be patient and encouraging — this is the final step.\n"
+    ),
+
     ConversationState.COMPLETE: (
         "\nCURRENT STATE: COMPLETE (terminal).\n"
         "The application has been submitted. Thank the user.\n"
@@ -307,8 +318,9 @@ _cached_llm_with_tools = None
 
 def _get_llm():
     """
-    Return the raw ChatXAI model (no tool binding).
+    Return the raw Chat model (no tool binding).
     Used for structured-output calls.
+    Supports xAI and Groq providers.
     """
     global _cached_llm
     if _cached_llm is not None:
@@ -320,14 +332,23 @@ def _get_llm():
             "the AI agent. Falling back to keyword-based conversation."
         )
 
-    from langchain_xai import ChatXAI
-
-    _cached_llm = ChatXAI(
-        model=llm_settings.LLM_MODEL,
-        temperature=0,  # Maximum determinism for banking operations
-        api_key=llm_settings.LLM_API_KEY,
-    )
-    logger.info(f"ChatXAI LLM initialised: model={llm_settings.LLM_MODEL} temperature=0")
+    provider = (llm_settings.LLM_PROVIDER or "xai").lower()
+    if provider == "groq":
+        from langchain_groq import ChatGroq
+        _cached_llm = ChatGroq(
+            model=llm_settings.LLM_MODEL,
+            temperature=0,  # Maximum determinism for banking operations
+            api_key=llm_settings.LLM_API_KEY,
+        )
+        logger.info(f"ChatGroq LLM initialised: model={llm_settings.LLM_MODEL} temperature=0")
+    else:
+        from langchain_xai import ChatXAI
+        _cached_llm = ChatXAI(
+            model=llm_settings.LLM_MODEL,
+            temperature=0,  # Maximum determinism for banking operations
+            api_key=llm_settings.LLM_API_KEY,
+        )
+        logger.info(f"ChatXAI LLM initialised: model={llm_settings.LLM_MODEL} temperature=0")
     return _cached_llm
 
 
@@ -635,38 +656,36 @@ def review_node(state: AgentState) -> dict:
         user_words = set(last_human.split())
 
         if user_words & confirm_words:
-            # User confirmed — complete the submission via service layer
+            # User confirmed — transition to SIGNATURE state to capture signature
             submission_id = state.get("submission_id")
             user_id = state.get("user_id")
 
             if submission_id and user_id:
                 try:
-                    from app.services import submission_service
+                    from app.models import Submission
                     db = app_db.SessionLocal()
                     try:
-                        completed = submission_service.complete_submission(
-                            submission_id, user_id, db
-                        )
-                        # Update DB conversation_state to COMPLETE
-                        completed.conversation_state = ConversationState.COMPLETE
-                        db.commit()
-                        logger.info(
-                            f"review_node: submission {submission_id} "
-                            f"completed by user={user_id}"
-                        )
+                        sub = db.query(Submission).filter(Submission.id == submission_id).first()
+                        if sub:
+                            sub.conversation_state = ConversationState.SIGNATURE
+                            db.commit()
+                            logger.info(
+                                f"review_node: submission {submission_id} "
+                                f"transitioned to SIGNATURE by user={user_id}"
+                            )
                     finally:
                         db.close()
 
-                    new_state_updates["conversation_state"] = ConversationState.COMPLETE
+                    new_state_updates["conversation_state"] = ConversationState.SIGNATURE
                     new_state_updates["messages"] = [
                         AIMessage(content=(
-                            "Your application has been submitted successfully! 🎉 "
-                            "Our team will review it and contact you shortly. "
-                            "Thank you for choosing BankAI!"
+                            "Almost done! Before submitting, please provide your signature. "
+                            "Use the signature pad that has appeared to draw your signature, "
+                            "then tap 'Save Signature'."
                         ))
                     ]
                 except Exception as exc:
-                    logger.error(f"review_node: completion failed: {exc}")
+                    logger.error(f"review_node: transition to SIGNATURE failed: {exc}")
                     new_state_updates["error"] = str(exc)
                     new_state_updates["messages"] = [
                         AIMessage(content=(
@@ -729,11 +748,64 @@ def complete_node(state: AgentState) -> dict:
         "messages": [
             AIMessage(content=(
                 "Your application has been submitted successfully! 🎉 "
+                "Your PDF is ready for download. "
                 "Our team will review it and contact you shortly. "
                 "Thank you for using BankAI!"
             ))
         ],
         "conversation_state": ConversationState.COMPLETE,
+        "error": None,
+    }
+
+
+def signature_node(state: AgentState) -> dict:
+    """
+    SIGNATURE state — waits for the user to provide their signature via the frontend.
+    If the signature is already provided (checked against DB), auto-completes.
+    """
+    submission_id = state.get("submission_id")
+    user_id = state.get("user_id")
+
+    if submission_id and user_id:
+        try:
+            from app.models import Submission
+            from app.services import submission_service
+            db = app_db.SessionLocal()
+            try:
+                sub = db.query(Submission).filter(Submission.id == submission_id).first()
+                if sub and sub.signed_at and sub.signature_path:
+                    # Already signed, move to complete
+                    completed = submission_service.complete_submission(
+                        sub.id, user_id, db
+                    )
+                    completed.conversation_state = ConversationState.COMPLETE
+                    db.commit()
+                    
+                    return {
+                        "messages": [
+                            AIMessage(content=(
+                                "Your application has been submitted successfully! 🎉 "
+                                "Your PDF is ready for download. "
+                                "Our team will review it and contact you shortly. Thank you!"
+                            ))
+                        ],
+                        "conversation_state": ConversationState.COMPLETE,
+                        "error": None,
+                    }
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.error(f"signature_node: {exc}")
+
+    # Not signed yet
+    return {
+        "messages": [
+            AIMessage(content=(
+                "I'm waiting for your signature. Please use the signature pad "
+                "on screen to draw your signature, then tap 'Save Signature'."
+            ))
+        ],
+        "conversation_state": ConversationState.SIGNATURE,
         "error": None,
     }
 
@@ -757,7 +829,8 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     ConversationState.WELCOME:            {ConversationState.WELCOME, ConversationState.SELECT_APPLICATION},
     ConversationState.SELECT_APPLICATION: {ConversationState.SELECT_APPLICATION, ConversationState.FILLING_FORM},
     ConversationState.FILLING_FORM:       {ConversationState.FILLING_FORM, ConversationState.REVIEW},
-    ConversationState.REVIEW:             {ConversationState.REVIEW, ConversationState.FILLING_FORM, ConversationState.COMPLETE},
+    ConversationState.REVIEW:             {ConversationState.REVIEW, ConversationState.FILLING_FORM, ConversationState.SIGNATURE},
+    ConversationState.SIGNATURE:          {ConversationState.SIGNATURE, ConversationState.COMPLETE},
     ConversationState.COMPLETE:           {ConversationState.COMPLETE},
 }
 
@@ -768,6 +841,7 @@ STATE_TO_NODE: dict[str, str] = {
     ConversationState.SELECT_APPLICATION: "select_application_node",
     ConversationState.FILLING_FORM:       "filling_form_node",
     ConversationState.REVIEW:             "review_node",
+    ConversationState.SIGNATURE:          "signature_node",
     ConversationState.COMPLETE:           "complete_node",
 }
 
@@ -887,6 +961,7 @@ def build_agent_graph() -> StateGraph:
     graph.add_node("select_application_node", select_application_node)
     graph.add_node("filling_form_node", filling_form_node)
     graph.add_node("review_node", review_node)
+    graph.add_node("signature_node", signature_node)
     graph.add_node("complete_node", complete_node)
     graph.add_node("tools", tool_node)
 
@@ -905,6 +980,7 @@ def build_agent_graph() -> StateGraph:
             "select_application_node": "select_application_node",
             "filling_form_node": "filling_form_node",
             "review_node": "review_node",
+            "signature_node": "signature_node",
             "complete_node": "complete_node",
         },
     )
@@ -930,6 +1006,7 @@ def build_agent_graph() -> StateGraph:
             "select_application_node": "select_application_node",
             "filling_form_node": "filling_form_node",
             "review_node": "review_node",
+            "signature_node": "signature_node",
             "complete_node": "complete_node",
         },
     )
@@ -941,12 +1018,31 @@ def build_agent_graph() -> StateGraph:
 # 9. Compiled graph singleton + checkpointer
 # ═══════════════════════════════════════════════════════════════════════════
 
-checkpointer = MemorySaver()
+# Import-time compilation uses whatever checkpointer is available.
+# After startup, main.py calls recompile_graph() to hot-swap in
+# the persistent PostgresSaver.
+from app.core.checkpointer import get_checkpointer
 
-# Compile at import time so the graph is ready for requests
-_compiled_graph = build_agent_graph().compile(checkpointer=checkpointer)
+_compiled_graph = build_agent_graph().compile(
+    checkpointer=get_checkpointer()
+)
 
-logger.info("LangGraph agent graph compiled with MemorySaver checkpointer")
+logger.info("LangGraph agent graph compiled (initial checkpointer)")
+
+
+def recompile_graph() -> None:
+    """
+    Recompile the agent graph with the current checkpointer.
+
+    Called by main.py after init_checkpointer() has set up the
+    PostgresSaver.  This hot-swaps the in-memory MemorySaver for
+    the persistent Postgres-backed checkpointer without restarting.
+    """
+    global _compiled_graph
+    _compiled_graph = build_agent_graph().compile(
+        checkpointer=get_checkpointer()
+    )
+    logger.info("LangGraph agent graph recompiled with updated checkpointer")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

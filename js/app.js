@@ -108,7 +108,7 @@
         try {
             await CameraModule.start(videoAadhaar, 'environment');
         } catch (err) {
-            alert('Could not access camera. Please grant camera permission and try again.');
+            BankAI_Toast.error('Could not access camera. Please grant camera permission and try again.');
             startAadhaar.style.display = 'block';
             return;
         }
@@ -152,7 +152,7 @@
         try {
             await CameraModule.start(videoPan, 'environment');
         } catch (err) {
-            alert('Could not access camera. Please grant camera permission and try again.');
+            BankAI_Toast.error('Could not access camera. Please grant camera permission and try again.');
             startPan.style.display = 'block';
             return;
         }
@@ -195,9 +195,19 @@
         startAadhaar.click();
     });
 
+    // Clear validation error when user types
+    inputAadh.addEventListener('input', () => inputAadh.classList.remove('invalid'));
+    inputPan.addEventListener('input', () => inputPan.classList.remove('invalid'));
+
     confirmAadh.addEventListener('click', () => {
         const val = inputAadh.value.trim();
-        if (!val) { inputAadh.focus(); return; }
+        const aadhaarPattern = /^\d{4}\s?\d{4}\s?\d{4}$/;
+        if (!val || !aadhaarPattern.test(val)) {
+            inputAadh.classList.add('invalid');
+            BankAI_Toast.error('Please enter a valid 12-digit Aadhaar number.');
+            inputAadh.focus();
+            return;
+        }
         kycData.aadhaar = val;
         CameraModule.stop();
         goToStep(2);
@@ -217,8 +227,15 @@
     });
 
     confirmPan.addEventListener('click', () => {
-        const val = inputPan.value.trim();
-        if (!val) { inputPan.focus(); return; }
+        const val = inputPan.value.trim().toUpperCase();
+        const panPattern = /^[A-Z]{5}\d{4}[A-Z]$/;
+        if (!val || !panPattern.test(val)) {
+            inputPan.classList.add('invalid');
+            BankAI_Toast.error('Please enter a valid 10-character PAN (e.g. ABCDE1234F).');
+            inputPan.focus();
+            return;
+        }
+        inputPan.value = val; // Set the cleaned uppercase value back to UI
         kycData.pan = val;
         CameraModule.stop();
         goToStep(3);
@@ -243,7 +260,7 @@
         try {
             await CameraModule.start(videoSelfie, 'user');
         } catch (err) {
-            alert('Could not access front camera. Please grant permission and try again.');
+            BankAI_Toast.error('Could not access front camera. Please grant permission and try again.');
             startSelfie.style.display = 'block';
             captureSelfie.style.display = 'none';
             return;
@@ -351,20 +368,23 @@
         };
 
         try {
-            const res = await fetch('/api/v1/kyc/submit', {
+            // Use centralized API client (includes auth header if token exists)
+            const res = await BankAI_API.request(BankAI_API.ENDPOINTS.KYC_SUBMIT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+                body: payload,
+                auth: false, // KYC submit doesn't need a prior token — it creates one
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${res.status}`);
+            }
             const data = await res.json();
-            console.log('KYC submitted:', data);
 
             // Store token + user info for dashboard
             if (data.access_token) {
                 sessionStorage.setItem('bankai_token', data.access_token);
             }
-            if (data.submission_id) {
+            if (data.submission_id !== undefined) {
                 sessionStorage.setItem('bankai_submission_id', data.submission_id);
             }
             // Store masked values for dashboard display
@@ -374,6 +394,7 @@
 
         } catch (err) {
             console.warn('Backend submission failed (offline mode):', err.message);
+            BankAI_Toast.warning('Could not reach server — running in demo mode.');
             // Still allow navigation in offline/demo mode
         }
 

@@ -1,0 +1,54 @@
+/* ═══════════════════════════════════════════════════
+   BankAI — Shared Design Tokens
+   ═══════════════════════════════════════════════════ */
+
+:root {
+  /* Unified Harmonious Color Palette */
+  --bg-deep: #050b18;
+  --bg-card: rgba(15, 20, 40, 0.65);
+  --bg-card-border: rgba(56, 189, 248, 0.12);
+  --glass-blur: 24px;
+
+  /* Accents */
+  --accent: #38bdf8;
+  --accent-soft: rgba(56, 189, 248, 0.15);
+  --accent-glow: rgba(56, 189, 248, 0.35);
+
+  --accent-green: #34d399;
+  --accent-green-soft: rgba(52, 211, 153, 0.15);
+  --accent-green-glow: rgba(52, 211, 153, 0.35);
+
+  --accent-purple: #a78bfa;
+  --accent-purple-soft: rgba(167, 139, 250, 0.15);
+  --accent-purple-glow: rgba(167, 139, 250, 0.35);
+
+  --accent-danger: #f87171;
+  --accent-danger-soft: rgba(248, 113, 113, 0.15);
+  --accent-danger-glow: rgba(248, 113, 113, 0.35);
+
+  --accent-warning: #fbbf24;
+  --accent-warning-soft: rgba(251, 191, 36, 0.15);
+  --accent-warning-glow: rgba(251, 191, 36, 0.35);
+
+  /* Typography / Text Colors */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #8b9bb5; /* Fixed to meet WCAG AA contrast (4.5:1 on background) */
+
+  /* Border Radii */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 999px;
+
+  /* Shadows */
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 0 30px var(--accent-glow);
+
+  /* Font Family */
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Global Animations */
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}

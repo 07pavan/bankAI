@@ -3,20 +3,31 @@ Submissions API — form submission lifecycle.
 All routes are JWT-protected.
 
 Contracts:
-  POST /api/v1/submissions/start    → start a new submission
-  GET  /api/v1/submissions          → list user's submissions
-  GET  /api/v1/submissions/{id}     → get submission + answers
-  POST /api/v1/submissions/complete → complete a submission
+  POST /api/v1/submissions/start              → start a new submission
+  GET  /api/v1/submissions                    → list user's submissions
+  GET  /api/v1/submissions/{id}               → get submission + answers
+  POST /api/v1/submissions/complete           → complete a submission
+  POST /api/v1/submissions/{id}/signature     → upload signature (Phase 3)
+  GET  /api/v1/submissions/{id}/pdf           → download generated PDF (Phase 3)
 """
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.database import get_db
 from app.core.security import get_current_user_id
-from app.schemas import SubmissionCreate, SubmissionOut
+from app.core.logging import get_logger
+from app.schemas import (
+    SubmissionCreate, SubmissionOut,
+    SignatureUploadRequest, SignatureUploadResponse,
+)
 from app.services import submission_service
+from app.services import signature_service
+from app.services import pdf_service
+
+logger = get_logger()
 
 router = APIRouter()
 
@@ -90,4 +101,81 @@ def complete_submission(
     Returns 409 if already completed.
     """
     return submission_service.complete_submission(payload.submission_id, user_id, db)
+
+
+# ---------------------------------------------------------------------------
+# POST /{id}/signature  — upload signature image (Phase 3)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{submission_id}/signature",
+    response_model=SignatureUploadResponse,
+    summary="Upload applicant signature",
+)
+def upload_signature(
+    submission_id: int,
+    payload: SignatureUploadRequest,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a base64-encoded signature image for a submission.
+
+    - Auth required (JWT)
+    - Only the submission owner can upload
+    - Only allowed when submission is in REVIEW or SIGNATURE state
+    - Accepts PNG or JPEG, max 512 KB
+    - Transitions submission to SIGNATURE state
+
+    Body: { "image": "<base64 string>" }
+    """
+    result = signature_service.save_signature(
+        submission_id=submission_id,
+        user_id=user_id,
+        base64_image=payload.image,
+        db=db,
+    )
+    logger.info(f"Signature uploaded: submission={submission_id} user={user_id}")
+    return SignatureUploadResponse(
+        submission_id=result["submission_id"],
+        signed_at=result["signed_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /{id}/pdf  — download generated PDF (Phase 3)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{submission_id}/pdf",
+    summary="Download submission PDF",
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "PDF file"},
+    },
+)
+def download_pdf(
+    submission_id: int,
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate and download a PDF for a completed submission.
+
+    - Auth required (JWT)
+    - Only the submission owner can download
+    - Only available for completed submissions
+    - Sensitive data (Aadhaar, PAN) is masked in the PDF
+    - Includes the user's signature if captured
+    """
+    filepath = pdf_service.generate_pdf(
+        submission_id=submission_id,
+        user_id=user_id,
+        db=db,
+    )
+    logger.info(f"PDF downloaded: submission={submission_id} user={user_id}")
+    return FileResponse(
+        path=filepath,
+        media_type="application/pdf",
+        filename=f"BankAI_Application_{submission_id}.pdf",
+    )
 

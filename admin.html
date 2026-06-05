@@ -129,37 +129,19 @@
       <!-- Selected form detail -->
       <div id="formDetailCard" style="display:none">
         <div class="card">
-          <div class="card-header">
-            <span class="card-title">📂 <span id="selectedFormName">—</span></span>
-            <span class="badge badge-blue" id="selectedFormCode"></span>
-          </div>
-
-          <!-- Sections sub-section -->
-          <div class="sub-section">
-            <div class="sub-section-header">
-              <span class="sub-section-title">Sections</span>
-              <button class="btn btn-secondary btn-sm" onclick="openModal('sectionModal')">+ Add Section</button>
+          <div class="card-header" style="border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+              <span class="card-title" style="font-size: 1.25rem;">📂 <span id="selectedFormName">—</span></span>
+              <span class="badge badge-blue" id="selectedFormCode" style="font-family: monospace;"></span>
             </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>ID</th><th>Name</th><th>Order</th></tr></thead>
-                <tbody id="sectionsBody"></tbody>
-              </table>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-secondary btn-sm" onclick="openModal('sectionModal')">📁 Add Section</button>
+              <button class="btn btn-primary btn-sm" onclick="openCreateFieldModal()">🔧 Add Field</button>
             </div>
           </div>
 
-          <!-- Fields sub-section -->
-          <div class="sub-section">
-            <div class="sub-section-header">
-              <span class="sub-section-title">Fields</span>
-              <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModal()">+ Add Field</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>ID</th><th>Key</th><th>Label</th><th>Type</th><th>Required</th><th>Active</th><th>Actions</th></tr></thead>
-                <tbody id="fieldsBody"></tbody>
-              </table>
-            </div>
+          <div class="visual-form-builder" id="visualFormBuilder">
+            <!-- Dynamically populated visual sections and fields -->
           </div>
         </div>
       </div>

@@ -15,6 +15,7 @@ let editingFormId = null;
 let editingFieldId = null;
 let selectedFieldType = 'text';
 let currentSections = [];
+let currentFields = [];
 
 // Pagination
 let subSkip = 0;
@@ -259,23 +260,8 @@ async function loadSections() {
     const res = await apiFetch(`/forms/${selectedFormId}/sections`);
     if (!res.ok) return;
     currentSections = await res.json();
-    renderSections(currentSections);
     updateSectionSelect();
-}
-
-function renderSections(sections) {
-    const tbody = document.getElementById('sectionsBody');
-    if (!sections.length) {
-        tbody.innerHTML = '<tr><td colspan="3"><div class="empty" style="padding:1rem">No sections yet</div></td></tr>';
-        return;
-    }
-    tbody.innerHTML = sections.map(s => `
-    <tr>
-      <td><span style="color:var(--muted);font-family:monospace">#${s.id}</span></td>
-      <td>${esc(s.name)}</td>
-      <td><span class="badge badge-blue">${s.order_index}</span></td>
-    </tr>
-  `).join('');
+    renderFormBuilder();
 }
 
 function updateSectionSelect() {
@@ -306,30 +292,182 @@ async function loadFields() {
     if (!selectedFormId) return;
     const res = await apiFetch(`/forms/${selectedFormId}/fields`);
     if (!res.ok) return;
-    const fields = await res.json();
-    renderFields(fields);
+    currentFields = await res.json();
+    renderFormBuilder();
 }
 
-function renderFields(fields) {
-    const tbody = document.getElementById('fieldsBody');
-    if (!fields.length) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty" style="padding:1rem">No fields yet</div></td></tr>';
+function renderFormBuilder() {
+    const builder = document.getElementById('visualFormBuilder');
+    if (!builder) return;
+
+    if (!currentSections.length && !currentFields.length) {
+        builder.innerHTML = `
+            <div class="empty-builder">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">📋</div>
+                <h3 style="font-weight:700; font-size:1.1rem; color:var(--text-primary);">This form is empty</h3>
+                <p style="color: var(--text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+                    Add sections and fields to define the form structure.
+                </p>
+            </div>
+        `;
         return;
     }
+
+    const sortedSections = [...currentSections].sort((a, b) => a.order_index - b.order_index);
+    const sortedFields = [...currentFields].sort((a, b) => a.order_index - b.order_index);
+
+    const fieldsBySection = {};
+    const unassignedFields = [];
+
+    sortedFields.forEach(f => {
+        if (f.section_id) {
+            if (!fieldsBySection[f.section_id]) fieldsBySection[f.section_id] = [];
+            fieldsBySection[f.section_id].push(f);
+        } else {
+            unassignedFields.push(f);
+        }
+    });
+
+    let html = '';
+
+    // Render unassigned fields if any exist
+    if (unassignedFields.length > 0) {
+        html += renderBuilderSection({ id: null, name: 'General / Unassigned Fields', order_index: 0 }, unassignedFields);
+    }
+
+    // Render each section
+    sortedSections.forEach(s => {
+        const sectionFields = fieldsBySection[s.id] || [];
+        html += renderBuilderSection(s, sectionFields);
+    });
+
+    builder.innerHTML = html;
+}
+
+function renderBuilderSection(section, fields) {
+    const isGeneral = section.id === null;
+    const sectionTitle = esc(section.name);
+    
+    let fieldsHtml = '';
+    if (fields.length === 0) {
+        fieldsHtml = `
+            <div class="empty-section-placeholder">
+                <span style="font-size: 1.1rem;">✨</span>
+                <span>No fields in this section yet. Click "+ Add Field" to add one.</span>
+            </div>
+        `;
+    } else {
+        fieldsHtml = fields.map(f => renderBuilderFieldCard(f)).join('');
+    }
+
+    const headerActions = isGeneral 
+        ? `<button class="btn btn-secondary btn-sm" onclick="openCreateFieldModalForSection(null)">+ Add Field</button>`
+        : `
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+                <span class="section-order-badge" title="Order Index">Order: ${section.order_index}</span>
+                <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModalForSection(${section.id})">+ Add Field</button>
+            </div>
+        `;
+
+    return `
+        <div class="builder-section-card ${isGeneral ? 'general-section' : ''}">
+            <div class="builder-section-header">
+                <div style="display:flex; align-items:center; gap:0.6rem;">
+                    <span style="font-size: 1.15rem;">${isGeneral ? '⚙️' : '📁'}</span>
+                    <h3 class="builder-section-title">${sectionTitle}</h3>
+                </div>
+                ${headerActions}
+            </div>
+            <div class="builder-field-grid">
+                ${fieldsHtml}
+            </div>
+        </div>
+    `;
+}
+
+function openCreateFieldModalForSection(sectionId) {
+    openCreateFieldModal();
+    const s = document.getElementById('fieldSection');
+    if (sectionId) {
+        s.value = sectionId;
+    } else {
+        s.value = '';
+    }
+}
+
+function renderBuilderFieldCard(f) {
+    const isRequired = f.required;
+    const isActive = f.is_active;
+    const key = esc(f.field_key);
+    const label = esc(f.label);
+    const type = esc(f.field_type);
+    
+    let previewInput = '';
+    if (type === 'text') {
+        previewInput = `<input type="text" class="form-control" disabled placeholder="Text response..." style="opacity: 0.5; cursor: not-allowed; height: 36px; padding: 0 .75rem; font-size: .85rem;" />`;
+    } else if (type === 'number') {
+        previewInput = `<input type="number" class="form-control" disabled placeholder="12345..." style="opacity: 0.5; cursor: not-allowed; height: 36px; padding: 0 .75rem; font-size: .85rem;" />`;
+    } else if (type === 'date') {
+        previewInput = `<input type="date" class="form-control" disabled style="opacity: 0.5; cursor: not-allowed; height: 36px; padding: 0 .75rem; font-size: .85rem;" />`;
+    } else if (type === 'select') {
+        let optionsHtml = '<option>Select option...</option>';
+        if (f.options && Array.isArray(f.options)) {
+            optionsHtml += f.options.map(opt => `<option disabled>${esc(opt.label || opt.value || opt)}</option>`).join('');
+        }
+        previewInput = `<select class="form-control" disabled style="opacity: 0.5; cursor: not-allowed; height: 36px; padding: 0 .75rem; font-size: .85rem;">${optionsHtml}</select>`;
+    } else if (type === 'radio') {
+        let optionsHtml = '';
+        if (f.options && Array.isArray(f.options)) {
+            optionsHtml = f.options.map(opt => `
+                <label style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:var(--text-secondary); cursor: not-allowed;">
+                    <input type="radio" disabled name="dummy_${f.id}" /> ${esc(opt.label || opt.value || opt)}
+                </label>
+            `).join('');
+        } else {
+            optionsHtml = `
+                <label style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:var(--text-secondary); cursor: not-allowed;">
+                    <input type="radio" disabled /> Option 1
+                </label>
+                <label style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:var(--text-secondary); cursor: not-allowed;">
+                    <input type="radio" disabled /> Option 2
+                </label>
+            `;
+        }
+        previewInput = `<div style="display:flex; gap:0.75rem; flex-wrap:wrap; padding: 0.2rem 0;">${optionsHtml}</div>`;
+    } else if (type === 'checkbox') {
+        previewInput = `
+            <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.82rem; color:var(--text-secondary); cursor: not-allowed; padding: 0.2rem 0;">
+                <input type="checkbox" disabled /> I agree to the terms
+            </label>
+        `;
+    }
+
     const typeColors = { text: 'blue', number: 'purple', date: 'yellow', select: 'green', radio: 'green', checkbox: 'green' };
-    tbody.innerHTML = fields.map(f => `
-    <tr>
-      <td><span style="color:var(--muted);font-family:monospace">#${f.id}</span></td>
-      <td><code style="font-size:.82rem;background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:6px">${esc(f.field_key)}</code></td>
-      <td>${esc(f.label)}</td>
-      <td><span class="badge badge-${typeColors[f.field_type] || 'blue'}">${esc(f.field_type)}</span></td>
-      <td>${f.required ? '<span class="badge badge-green">★ Yes</span>' : '<span class="badge badge-red">No</span>'}</td>
-      <td>${f.is_active ? '<span class="badge badge-green">●</span>' : '<span class="badge badge-red">●</span>'}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm" onclick="openEditFieldModal(${JSON.stringify(f).replace(/"/g, '&quot;')})">Edit</button>
-      </td>
-    </tr>
-  `).join('');
+    const badgeColor = typeColors[type] || 'blue';
+
+    const fJson = JSON.stringify(f).replace(/"/g, '&quot;');
+
+    return `
+        <div class="builder-field-card ${isActive ? '' : 'field-inactive'}">
+            <div class="field-card-header">
+                <div style="display:flex; align-items:center; gap:0.3rem; overflow:hidden;">
+                    <span class="field-card-label" title="${label}">${label}</span>
+                    ${isRequired ? '<span class="field-required-star" title="Required">*</span>' : ''}
+                </div>
+                <button class="field-edit-btn" onclick="openEditFieldModal(${fJson})" title="Edit Field">✏️</button>
+            </div>
+            
+            <div class="field-card-preview">
+                ${previewInput}
+            </div>
+            
+            <div class="field-card-footer">
+                <code class="field-key-badge">${key}</code>
+                <span class="badge badge-${badgeColor}" style="font-size: 0.65rem; padding: 0.15rem 0.35rem;">${type}</span>
+                ${isActive ? '' : '<span class="badge badge-red" style="font-size: 0.65rem; padding: 0.15rem 0.35rem;">Inactive</span>'}
+            </div>
+        </div>
+    `;
 }
 
 function selectFieldType(type) {

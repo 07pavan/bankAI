@@ -19,6 +19,7 @@ from app.core.logging import get_logger
 _PRESIDIO_AVAILABLE = False
 try:
     from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
     from presidio_anonymizer import AnonymizerEngine
     from presidio_anonymizer.entities import OperatorConfig
     _PRESIDIO_AVAILABLE = True
@@ -122,7 +123,20 @@ class PIIRedactionService:
                 )
 
                 # --- Presidio engines -------------------------------------------
-                self._analyzer = AnalyzerEngine()
+                # Configure Presidio to use the small spaCy model (en_core_web_sm)
+                # to stay within Render's free tier memory limits (512MB RAM).
+                configuration = {
+                    "nlp_engine_name": "spacy",
+                    "models": [
+                        {
+                            "lang_code": "en",
+                            "model_name": "en_core_web_sm"
+                        }
+                    ],
+                }
+                provider = NlpEngineProvider(nlp_configuration=configuration)
+                nlp_engine = provider.create_engine()
+                self._analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
                 self._analyzer.registry.add_recognizer(aadhaar_recognizer)
                 self._analyzer.registry.add_recognizer(pan_recognizer)
                 self._analyzer.registry.add_recognizer(phone_recognizer)

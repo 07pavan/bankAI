@@ -71,8 +71,11 @@
     }
 
     // ── Text-to-Speech ────────────────────────────────────────────────────────
-    function speak(text) {
-        if (!state.synth || !state.speechEnabled) return;
+    function speak(text, callback = null) {
+        if (!state.synth || !state.speechEnabled) {
+            if (callback) callback();
+            return;
+        }
         state.synth.cancel();
         
         // Remove markdown elements from speech text
@@ -214,7 +217,11 @@
                 const err = await res.json().catch(() => ({}));
                 const msg = err.detail || 'That value looks incorrect. Please try again.';
                 addBubble('agent', `⚠️ ${msg}`);
-                speak(msg);
+                speak(msg, () => {
+                    if (state.mode === 'form_filling') {
+                        startListening();
+                    }
+                });
                 return;
             }
 
@@ -225,7 +232,22 @@
 
             const data = await res.json();
             addBubble('agent', data.next_question);
-            speak(data.next_question);
+            
+            // Check if signature collection is active
+            const isSigState = data.conversation_state === 'signature';
+            if (isSigState) {
+                openSignatureModal();
+                addSignatureButton();
+            } else {
+                removeSignatureButton();
+            }
+
+            speak(data.next_question, () => {
+                // Auto-start listening after TTS finishes, unless we entered signature state
+                if (!isSigState && (state.mode === 'form_filling' || state.mode === 'chat')) {
+                    startListening();
+                }
+            });
 
             // Update progress bar from inline response fields (no extra API call)
             if (data.total_fields != null && data.current_field_index != null) {
@@ -278,7 +300,20 @@
             if (turnRes.ok) {
                 const turn = await turnRes.json();
                 addBubble('agent', turn.next_question);
-                speak(turn.next_question);
+                
+                // Check signature state immediately
+                const isSigState = turn.conversation_state === 'signature';
+                if (isSigState) {
+                    openSignatureModal();
+                    addSignatureButton();
+                }
+
+                speak(turn.next_question, () => {
+                    if (!isSigState && state.mode === 'form_filling') {
+                        startListening();
+                    }
+                });
+
                 // Use progress from the /next response (now includes inline fields)
                 if (turn.total_fields != null) {
                     showProgress(turn.current_field_index || 0, turn.total_fields);
@@ -312,6 +347,7 @@
                 subtitle.textContent = 'Ask about forms • Apply with voice • Get help';
                 hideProgress();
                 cancelBtn.remove();
+                removeSignatureButton();
                 addBubble('agent', 'Form cancelled. How else can I help you today?');
                 speak('Form cancelled. How else can I help you today?');
             }
@@ -370,6 +406,154 @@
         progressPct.textContent = pct + '%';
     }
 
+    // ── HTML5 Signature Canvas Drawing Pad Logic ─────────────────────────────────
+    let canvasInitialized = false;
+    let drawing = false;
+    const canvas = document.getElementById('signatureCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+
+    function initCanvas() {
+        if (!canvas || canvasInitialized) return;
+        canvasInitialized = true;
+
+        // Set up mouse events
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseleave', stopDrawing);
+
+        // Set up touch events (mobile friendly)
+        canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+            e.preventDefault();
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+            e.preventDefault();
+        });
+        canvas.addEventListener('touchend', (e) => {
+            const mouseEvent = new MouseEvent('mouseup', {});
+            canvas.dispatchEvent(mouseEvent);
+            e.preventDefault();
+        });
+
+        // Clear button
+        document.getElementById('clearSigBtn').addEventListener('click', clearCanvas);
+
+        // Close button
+        document.getElementById('closeSigModal').addEventListener('click', () => {
+            document.getElementById('signatureModal').classList.remove('open');
+        });
+
+        // Save button
+        document.getElementById('saveSigBtn').addEventListener('click', async () => {
+            const buffer = new Uint32Array(ctx.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
+            const hasDrawn = buffer.some(color => color !== 0);
+
+            if (!hasDrawn) {
+                BankAI_Toast.error('Please sign before saving!');
+                return;
+            }
+
+            const dataUrl = canvas.toDataURL('image/png');
+            setBusy(true);
+            try {
+                const res = await BankAI_API.uploadSignature(state.submissionId, dataUrl);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    BankAI_Toast.error(err.detail || 'Failed to save signature.');
+                    return;
+                }
+                BankAI_Toast.success('Signature saved successfully!');
+                document.getElementById('signatureModal').classList.remove('open');
+                removeSignatureButton();
+                
+                showTyping();
+                await handleFormTurn('Signature provided');
+            } catch (err) {
+                console.error(err);
+                BankAI_Toast.error('Network error uploading signature.');
+            } finally {
+                setBusy(false);
+            }
+        });
+    }
+
+    function getMousePos(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (canvas.width / rect.width),
+            y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        };
+    }
+
+    function startDrawing(e) {
+        drawing = true;
+        ctx.beginPath();
+        const pos = getMousePos(e);
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#0f172a'; // Drawing color (dark slate slate-900)
+    }
+
+    function draw(e) {
+        if (!drawing) return;
+        const pos = getMousePos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+    }
+
+    function stopDrawing() {
+        drawing = false;
+    }
+
+    function clearCanvas() {
+        if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+
+    function openSignatureModal() {
+        const modal = document.getElementById('signatureModal');
+        if (modal) {
+            modal.classList.add('open');
+            initCanvas();
+            clearCanvas();
+        }
+    }
+
+    function addSignatureButton() {
+        // Prevent duplicates
+        if (document.getElementById('reopen-sig-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary btn-sm';
+        btn.id = 'reopen-sig-btn';
+        btn.style.marginTop = '10px';
+        btn.innerHTML = '✍️ Draw Signature';
+        btn.addEventListener('click', openSignatureModal);
+
+        const lastBubble = [...history.querySelectorAll('.bubble.agent')].pop();
+        if (lastBubble) {
+            lastBubble.querySelector('.bubble-text').appendChild(btn);
+        }
+    }
+
+    function removeSignatureButton() {
+        document.getElementById('reopen-sig-btn')?.remove();
+    }
+
     function hideProgress() {
         progressWrap.classList.remove('visible');
     }
@@ -404,17 +588,17 @@
     function addBubble(role, text) {
         const wrap = document.createElement('div');
         wrap.className = `bubble ${role}`;
-        
+
         const av = document.createElement('div');
         av.className = 'bubble-avatar';
         av.textContent = role === 'agent' ? '🤖' : '👤';
-        
+
         const txt = document.createElement('div');
         txt.className = 'bubble-text';
-        
+
         // Render simple markdown formatted HTML safely
         txt.innerHTML = renderMarkdown(text);
-        
+
         wrap.appendChild(av);
         wrap.appendChild(txt);
         history.appendChild(wrap);
@@ -441,7 +625,7 @@
     function removeTyping() {
         const elapsed = Date.now() - typingStart;
         const delay = Math.max(0, MIN_TYPING_TIME - elapsed);
-        
+
         // Use timeout to preserve typing animation minimum visual duration
         setTimeout(() => {
             document.getElementById('typing-indicator')?.remove();
@@ -450,11 +634,35 @@
 
     function addCompletion() {
         removeCancelFormBtn();
-        addBubble('agent',
-            '🎉 Your application has been submitted! Our team will review it and contact you shortly.'
+        removeSignatureButton();
+        const bubble = addBubble('agent',
+            '🎉 Your application has been submitted! Our team will review it and contact you shortly.\n\nYour PDF is ready for download.'
         );
-        speak('Your application has been submitted successfully! Our team will review it and contact you shortly.');
+
+        // Add Download PDF button
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'btn btn-primary btn-sm';
+        dlBtn.style.marginTop = '10px';
+        dlBtn.innerHTML = '📥 Download PDF';
+        dlBtn.addEventListener('click', async () => {
+            dlBtn.disabled = true;
+            dlBtn.innerHTML = '⏳ Generating...';
+            try {
+                await BankAI_API.downloadPdf(state.submissionId);
+                dlBtn.innerHTML = '📥 Download PDF';
+                dlBtn.disabled = false;
+            } catch (err) {
+                console.error(err);
+                BankAI_Toast.error(err.message || 'Failed to download PDF.');
+                dlBtn.innerHTML = '📥 Download PDF';
+                dlBtn.disabled = false;
+            }
+        });
+        bubble.querySelector('.bubble-text').appendChild(dlBtn);
+
+        speak('Your application has been submitted successfully! Your PDF is ready for download.');
     }
+
 
     // ── Busy state ────────────────────────────────────────────────────────────
     function setBusy(v) {
@@ -483,16 +691,38 @@
     function greet() {
         const hour = new Date().getHours();
         const time = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-        const greeting = (
+        
+        const greetingDisplay = (
             `${time}! 👋 I'm your BankAI Assistant.\n\n` +
             `I can help you:\n` +
             `• Open a savings account\n` +
             `• Link your Aadhaar\n` +
             `• Request a cheque book\n\n` +
-            `Just type or tap the 🎙️ mic to speak — I'll guide you through everything!`
+            `Please speak your request now — I'm listening!`
         );
-        addBubble('agent', greeting);
-        // Do NOT auto-speak to satisfy browser policies and avoid jarring UX
+        addBubble('agent', greetingDisplay);
+
+        const greetingSpeechText = `${time}! Welcome to BankAI. I am your banking assistant. I can help you open a savings account, link your Aadhaar, or request a cheque book. What would you like to do today?`;
+        
+        let spoken = false;
+        
+        // Safety fallback: if speech doesn't start or finish within 5 seconds, activate mic anyway
+        const safetyTimer = setTimeout(() => {
+            if (!spoken) {
+                spoken = true;
+                startListening();
+            }
+        }, 5000);
+
+        speak(greetingSpeechText, () => {
+            if (!spoken) {
+                spoken = true;
+                clearTimeout(safetyTimer);
+                setTimeout(() => {
+                    startListening();
+                }, 300);
+            }
+        });
     }
 
     // ── Seed page data from sessionStorage ────────────────────────────────────

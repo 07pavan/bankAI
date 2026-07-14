@@ -173,14 +173,14 @@ function renderForms(forms) {
     }
     const bankMap = Object.fromEntries(allBanks.map(b => [b.id, b.name]));
     tbody.innerHTML = forms.map(f => `
-    <tr class="clickable" onclick="selectForm(${f.id}, '${esc(f.name)}', '${esc(f.code)}')">
+    <tr class="clickable" onclick="selectForm('${f.id}', '${esc(f.name)}', '${esc(f.code)}')">
       <td><span style="color:var(--muted);font-family:monospace">#${f.id}</span></td>
       <td>${esc(bankMap[f.bank_id] || '—')}</td>
       <td><strong>${esc(f.name)}</strong></td>
       <td><code style="background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:6px;font-size:.82rem">${esc(f.code)}</code></td>
       <td>${statusBadge(f.is_active)}</td>
       <td onclick="event.stopPropagation()">
-        <button class="btn btn-secondary btn-sm" onclick="openEditFormModal(${f.id},'${esc(f.name)}','${esc(f.description || '')}',${f.is_active})">Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditFormModal('${f.id}','${esc(f.name)}','${esc(f.description || '')}',${f.is_active})">Edit</button>
       </td>
     </tr>
   `).join('');
@@ -229,7 +229,7 @@ async function submitFormModal() {
 }
 
 async function createForm() {
-    const bank_id = parseInt(document.getElementById('formBankId').value);
+    const bank_id = document.getElementById('formBankId').value;
     const name = document.getElementById('formName').value.trim();
     const code = document.getElementById('formCode').value.trim();
     const description = document.getElementById('formDesc').value.trim() || null;
@@ -365,7 +365,7 @@ function renderBuilderSection(section, fields) {
         : `
             <div style="display:flex; gap:0.5rem; align-items:center;">
                 <span class="section-order-badge" title="Order Index">Order: ${section.order_index}</span>
-                <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModalForSection(${section.id})">+ Add Field</button>
+                <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModalForSection('${section.id}')">+ Add Field</button>
             </div>
         `;
 
@@ -535,7 +535,7 @@ async function createField() {
         field_type: selectedFieldType,
         required: document.getElementById('fieldRequired').checked,
         order_index: parseInt(document.getElementById('fieldOrder').value) || 0,
-        section_id: parseInt(document.getElementById('fieldSection').value) || null,
+        section_id: document.getElementById('fieldSection').value || null,
         options: parseJsonField('fieldOptions'),
         validation_rule: parseJsonField('fieldValidation'),
     };
@@ -601,7 +601,7 @@ function renderSubmissions(subs) {
       <td>${s.status === 'completed' ? '<span class="badge badge-green">Completed</span>' : '<span class="badge badge-yellow">Draft</span>'}</td>
       <td><span class="badge badge-${stateColor[s.conversation_state] || 'blue'}">${esc(s.conversation_state || '—')}</span></td>
       <td style="font-size:.82rem;color:var(--muted)">${s.created_at ? s.created_at.slice(0, 16).replace('T', ' ') : '—'}</td>
-      <td><button class="btn btn-accent btn-sm" onclick="loadSubmissionDetail(${s.id})">View</button></td>
+      <td><button class="btn btn-accent btn-sm" onclick="loadSubmissionDetail('${s.id}')">View</button></td>
     </tr>
   `).join('');
 }

@@ -392,10 +392,19 @@
             sessionStorage.setItem('bankai_pan', kycData.pan || '—');
             if (kycData.selfie) sessionStorage.setItem('bankai_selfie', kycData.selfie);
 
+            // Auto navigate to dashboard after a short delay for success animation
+            BankAI_Toast.success('KYC Submitted Successfully! Opening Dashboard...');
+            setTimeout(() => {
+                window.location.href = '/dashboard.html';
+            }, 1500);
+
         } catch (err) {
             console.warn('Backend submission failed (offline mode):', err.message);
             BankAI_Toast.warning('Could not reach server — running in demo mode.');
             // Still allow navigation in offline/demo mode
+            setTimeout(() => {
+                window.location.href = '/dashboard.html';
+            }, 1500);
         }
 
         dashBtn.disabled = false;

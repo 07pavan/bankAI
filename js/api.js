@@ -19,6 +19,13 @@ const BankAI_API = (() => {
     ADMIN_SUBMISSIONS: `${BASE}/admin/submissions`,
   };
 
+  // Dynamic URL builders for submission-scoped endpoints
+  const submissionSignatureUrl = (submissionId) =>
+    `${BASE}/submissions/${submissionId}/signature`;
+
+  const submissionPdfUrl = (submissionId) =>
+    `${BASE}/submissions/${submissionId}/pdf`;
+
   function getToken() {
     // KYC auth stores token in sessionStorage
     return sessionStorage.getItem('bankai_token') || sessionStorage.getItem('adminToken') || '';
@@ -58,9 +65,47 @@ const BankAI_API = (() => {
     }
   }
 
+  /**
+   * Upload a base64 signature image for a submission.
+   * @param {string} submissionId  - Firestore submission doc ID
+   * @param {string} base64Image   - base64 string (with or without data URL prefix)
+   * @returns {Promise<Response>}
+   */
+  async function uploadSignature(submissionId, base64Image) {
+    return request(submissionSignatureUrl(submissionId), {
+      method: 'POST',
+      body: { image: base64Image },
+    });
+  }
+
+  /**
+   * Download the generated PDF for a completed submission.
+   * Triggers a file-save dialog in the browser.
+   * @param {string} submissionId  - Firestore submission doc ID
+   * @returns {Promise<void>}
+   */
+  async function downloadPdf(submissionId) {
+    const res = await request(submissionPdfUrl(submissionId), { method: 'GET' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'PDF download failed' }));
+      throw new Error(err.detail || 'PDF download failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `BankAI_Application_${submissionId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return {
     ENDPOINTS,
     request,
     getToken,
+    uploadSignature,
+    downloadPdf,
   };
 })();

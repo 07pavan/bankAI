@@ -246,10 +246,31 @@
         </div>
     </div>
 
+    <!-- Signature Modal -->
+    <div class="modal-overlay" id="signatureModal" role="dialog" aria-modal="true" aria-labelledby="sig-modal-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="sig-modal-title">✍️ Applicant Signature</h3>
+                <button class="modal-close" id="closeSigModal" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-instruction">Please draw your signature in the box below using your mouse or touch screen. This is required to complete your application.</p>
+                <div class="canvas-container">
+                    <canvas id="signatureCanvas" width="450" height="200"></canvas>
+                </div>
+                <div class="signature-actions">
+                    <button class="btn btn-secondary btn-sm" id="clearSigBtn">Clear</button>
+                    <button class="btn btn-primary btn-sm" id="saveSigBtn">Save Signature</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="js/toast.js"></script>
     <script src="js/api.js"></script>
     <script src="js/dashboard.js"></script>
 </body>
+
 
 </html>

@@ -474,3 +474,184 @@ html, body {
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.01);
 }
+
+/* ── Modal Overlay ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.80);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Modal Card ── */
+.modal {
+  background: #0d1a2d;
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  width: 90%;
+  max-width: 480px;
+  padding: 2rem;
+  transform: scale(0.92) translateY(12px);
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.modal-overlay.open .modal {
+  transform: scale(1) translateY(0);
+}
+
+/* ── Modal Top (header row) ── */
+.modal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.modal-top h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ── Modal Close Button ── */
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.modal-close:hover {
+  color: var(--accent-danger, #f87171);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* ── Modal Actions (footer buttons row) ── */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ── Form inputs used inside modals ── */
+.form-input,
+.form-textarea,
+.form-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 0.65rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus {
+  border-color: var(--accent-purple, #a78bfa);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.12);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  padding-right: 2.2rem;
+}
+
+/* ── Form row (2-column grid inside modals) ── */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+/* ── Accent button used in auth overlay ── */
+.btn-accent {
+  background: var(--accent-purple, #a78bfa);
+  color: #000;
+  font-weight: 700;
+}
+
+.btn-accent:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(167, 139, 250, 0.4);
+}
+
+/* ── Empty / loading states ── */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.spin {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--accent, #34d399);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Submission count badge ── */
+.card-count {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .modal { padding: 1.25rem; }
+  .form-row { grid-template-columns: 1fr; }
+  .main { padding: 1rem; }
+}
+

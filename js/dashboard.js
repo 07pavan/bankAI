@@ -72,13 +72,7 @@
     }
 
     // ── Text-to-Speech ────────────────────────────────────────────────────────
-    async function speak(text, callback = null) {
-        if (!state.speechEnabled) {
-            if (callback) callback();
-            return;
-        }
-
-        // Cancel any active browser native speech or active audio playback
+    function stopActiveSpeech() {
         if (state.synth) state.synth.cancel();
         if (state.currentAudio) {
             try {
@@ -86,6 +80,16 @@
             } catch (_) {}
             state.currentAudio = null;
         }
+        panel.classList.remove('speaking');
+    }
+
+    async function speak(text, callback = null) {
+        if (!state.speechEnabled) {
+            if (callback) callback();
+            return;
+        }
+
+        stopActiveSpeech();
         
         // Remove markdown elements from speech text
         const speechText = text.replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -171,6 +175,7 @@
             BankAI_Toast.error('🎙️ Voice input not supported in this browser');
             return;
         }
+        stopActiveSpeech(); // Cancel any active speak playback immediately when user triggers mic
         state.speechEnabled = true; // Enable speech output once user interacts with mic
         try {
             recognition.start();
@@ -203,6 +208,7 @@
     inputEl.addEventListener('input', () => {
         inputEl.style.height = 'auto';
         inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+        stopActiveSpeech(); // Stop speech immediately when user starts typing
     });
 
     inputEl.addEventListener('keydown', (e) => {
@@ -218,6 +224,7 @@
     async function send() {
         const text = inputEl.value.trim();
         if (!text || state.busy) return;
+        stopActiveSpeech(); // Stop speech immediately when user submits a message
         inputEl.value = '';
         inputEl.style.height = 'auto';
 

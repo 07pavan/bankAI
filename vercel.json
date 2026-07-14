@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://YOUR-RENDER-BACKEND-URL.onrender.com/api/:path*"
+      "destination": "https://bankai-gaw0.onrender.com/api/:path*"
     }
   ]
 }

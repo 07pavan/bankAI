@@ -1,5 +1,7 @@
 """
-Pydantic schemas for request/response validation — BankAI
+Pydantic schemas for request/response validation — BankAI (Firestore edition)
+
+All entity IDs are now strings (Firestore document IDs) instead of integers.
 """
 
 from pydantic import BaseModel, field_validator, ConfigDict
@@ -9,7 +11,7 @@ import re
 
 
 # ---------------------------------------------------------------------------
-# Existing KYC schemas
+# KYC schemas
 # ---------------------------------------------------------------------------
 
 class KYCSubmitRequest(BaseModel):
@@ -36,8 +38,8 @@ class KYCSubmitRequest(BaseModel):
 
 class KYCSubmitResponse(BaseModel):
     """Response after KYC submission with JWT token."""
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     status: str
     message: str
     access_token: str
@@ -48,7 +50,7 @@ class KYCSubmitResponse(BaseModel):
 
 class KYCStatusResponse(BaseModel):
     """KYC status lookup response."""
-    id: int
+    id: str
     aadhaar_masked: str
     pan_masked: str
     status: str
@@ -60,34 +62,30 @@ class TokenResponse(BaseModel):
     """JWT token response"""
     access_token: str
     token_type: str = "bearer"
-    user_id: int
+    user_id: str
 
 
 class UserResponse(BaseModel):
     """User information response"""
-    id: int
+    id: str
     created_at: datetime
     kyc_count: int
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Form Engine schemas
+# Form Engine schemas
 # ---------------------------------------------------------------------------
 
 class BankOut(BaseModel):
     """Public bank representation."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
+    id: str
     name: str
     code: str
 
 
 class FormListItem(BaseModel):
     """Lightweight form summary for listing."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
+    id: str
     name: str
     code: str
     description: Optional[str] = None
@@ -95,9 +93,7 @@ class FormListItem(BaseModel):
 
 class FormFieldOut(BaseModel):
     """Full field definition returned to clients / voice agent."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
+    id: str
     field_key: str
     label: str
     field_type: str
@@ -105,14 +101,12 @@ class FormFieldOut(BaseModel):
     validation_rule: Optional[Any] = None
     options: Optional[Any] = None
     order_index: int
-    section_id: Optional[int] = None
+    section_id: Optional[str] = None
 
 
 class FormSectionOut(BaseModel):
     """Section with its ordered fields."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
+    id: str
     name: str
     order_index: int
     fields: list[FormFieldOut] = []
@@ -120,10 +114,8 @@ class FormSectionOut(BaseModel):
 
 class FormOut(BaseModel):
     """Full form definition with sections and all active fields."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    bank_id: int
+    id: str
+    bank_id: str
     name: str
     code: str
     description: Optional[str] = None
@@ -132,12 +124,12 @@ class FormOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Submission schemas
+# Submission schemas
 # ---------------------------------------------------------------------------
 
 class SubmissionCreate(BaseModel):
     """Start a new form submission."""
-    form_id: int
+    form_id: str
 
 
 class FieldAnswerIn(BaseModel):
@@ -148,8 +140,6 @@ class FieldAnswerIn(BaseModel):
 
 class SubmissionDataOut(BaseModel):
     """A single answered field."""
-    model_config = ConfigDict(from_attributes=True)
-
     field_key: str
     value: Optional[str] = None
     updated_at: Optional[datetime] = None
@@ -157,11 +147,9 @@ class SubmissionDataOut(BaseModel):
 
 class SubmissionOut(BaseModel):
     """Full submission with all answered data."""
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    user_id: int
-    form_id: int
+    id: str
+    user_id: str
+    form_id: str
     status: str
     current_field_index: int
     conversation_state: Optional[str] = None
@@ -175,7 +163,7 @@ class SubmissionOut(BaseModel):
 
 class SubmissionProgress(BaseModel):
     """Lightweight progress snapshot for the voice agent."""
-    submission_id: int
+    submission_id: str
     current_field_index: int
     total_fields: int
     status: str
@@ -183,7 +171,7 @@ class SubmissionProgress(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — Signature & PDF schemas
+# Signature & PDF schemas
 # ---------------------------------------------------------------------------
 
 class SignatureUploadRequest(BaseModel):
@@ -193,33 +181,33 @@ class SignatureUploadRequest(BaseModel):
 
 class SignatureUploadResponse(BaseModel):
     """Response after successful signature upload."""
-    submission_id: int
+    submission_id: str
     message: str = "Signature saved successfully."
     signed_at: str
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Conversation Agent schemas
+# Conversation Agent schemas
 # ---------------------------------------------------------------------------
 
 class ConversationStartResponse(BaseModel):
     """Response when a user starts a conversation session."""
-    message: str                        # Greeting / prompt to the user
-    available_forms: list[FormListItem]  # Forms the user can apply for
+    message: str
+    available_forms: list[FormListItem]
 
 
 class ConversationTurnRequest(BaseModel):
     """A single turn of user text input to the conversation agent."""
-    submission_id: int
+    submission_id: str
     text_input: str
 
 
 class ConversationTurnResponse(BaseModel):
     """Agent response after processing one user turn."""
-    submission_id: int
-    field_key: Optional[str] = None      # Field that was just answered
-    agent_message: str                   # Next prompt or confirmation
-    is_complete: bool = False            # True when form is fully submitted
+    submission_id: str
+    field_key: Optional[str] = None
+    agent_message: str
+    is_complete: bool = False
     progress: Optional[SubmissionProgress] = None
 
 
@@ -235,8 +223,7 @@ class BankCreate(BaseModel):
 
 class BankAdminOut(BaseModel):
     """Full bank representation for admin."""
-    model_config = ConfigDict(from_attributes=True)
-    id: int
+    id: str
     name: str
     code: str
     is_active: bool
@@ -245,7 +232,7 @@ class BankAdminOut(BaseModel):
 
 class FormCreate(BaseModel):
     """Create a new form."""
-    bank_id: int
+    bank_id: str
     name: str
     code: str
     description: Optional[str] = None
@@ -260,9 +247,8 @@ class FormUpdate(BaseModel):
 
 class FormAdminOut(BaseModel):
     """Full form representation for admin."""
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    bank_id: int
+    id: str
+    bank_id: str
     name: str
     code: str
     description: Optional[str] = None
@@ -278,9 +264,8 @@ class SectionCreate(BaseModel):
 
 class SectionAdminOut(BaseModel):
     """Section representation for admin."""
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    form_id: int
+    id: str
+    form_id: str
     name: str
     order_index: int
 
@@ -292,7 +277,7 @@ class FieldCreate(BaseModel):
     field_type: str
     required: bool = True
     order_index: int = 0
-    section_id: Optional[int] = None
+    section_id: Optional[str] = None
     validation_rule: Optional[Any] = None
     options: Optional[Any] = None
 
@@ -310,10 +295,9 @@ class FieldUpdate(BaseModel):
 
 class FieldAdminOut(BaseModel):
     """Field representation for admin."""
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    form_id: int
-    section_id: Optional[int] = None
+    id: str
+    form_id: str
+    section_id: Optional[str] = None
     field_key: str
     label: str
     field_type: str
@@ -326,9 +310,9 @@ class FieldAdminOut(BaseModel):
 
 class AdminSubmissionListItem(BaseModel):
     """Summary row for the admin submissions list."""
-    id: int
-    user_id: int
-    form_id: int
+    id: str
+    user_id: str
+    form_id: str
     form_name: Optional[str] = None
     bank_name: Optional[str] = None
     status: str
@@ -346,9 +330,9 @@ class AdminSubmissionDataItem(BaseModel):
 
 class AdminSubmissionDetail(BaseModel):
     """Full detail view of a submission for admin."""
-    id: int
-    user_id: int
-    form_id: int
+    id: str
+    user_id: str
+    form_id: str
     form_name: Optional[str] = None
     bank_name: Optional[str] = None
     status: str

@@ -1,27 +1,14 @@
 """
-Persistent checkpointer for LangGraph — PostgresSaver backed by psycopg.
+LangGraph Checkpointer — Firestore-backed conversation memory.
 
-Gives the BankAI agent cross-restart, production-grade conversation memory.
-Every ``thread_id`` (= ``user_{user_id}``) accumulates a full message
-history that survives server restarts, re-deploys, and container cycling.
+For production persistence the agent uses langgraph's MemorySaver by default
+(in-process, restarts lose history). For true cross-restart persistence a
+custom FirestoreCheckpointer can be plugged in here later.
 
-Configuration:
-  LANGGRAPH_CHECKPOINT_DB  — explicit DSN for the checkpoint database.
-                             Falls back to the main DATABASE_URL if unset.
-
-Usage in ai_agent_service.py:
-  from app.core.checkpointer import get_checkpointer
-  checkpointer = get_checkpointer()          # PostgresSaver or MemorySaver
-  graph = build_agent_graph().compile(checkpointer=checkpointer)
-
-Lifecycle:
-  - ``init_checkpointer()`` must be called once at application startup
-    (from ``main.py`` startup event) to create the checkpoint tables
-    and warm the connection.
-  - ``shutdown_checkpointer()`` is called at shutdown to close the pool.
-  - ``get_checkpointer()`` returns the active checkpointer instance.
-    If PostgresSaver hasn't been initialised (e.g. in tests),
-    falls back to an in-memory MemorySaver.
+Lifecycle (called from main.py):
+  init_checkpointer()  — call at startup
+  get_checkpointer()   — called by ai_agent_service to build the agent graph
+  shutdown_checkpointer() — call at shutdown
 """
 
 from __future__ import annotations
@@ -33,100 +20,38 @@ from app.core.logging import get_logger
 
 logger = get_logger()
 
-# Module-level singleton — set by init_checkpointer()
+# Module-level singleton
 _checkpointer: Optional[object] = None
-_postgres_connection: Optional[object] = None
-
-
-def _build_dsn() -> str:
-    """
-    Build the PostgreSQL DSN for the checkpoint database.
-
-    Uses LANGGRAPH_CHECKPOINT_DB if set, otherwise falls back to
-    DATABASE_URL.  The DSN must be in libpq/psycopg format:
-        postgresql://user:pass@host:port/dbname
-    """
-    from app.core.config import llm_settings
-    dsn = llm_settings.checkpoint_db_url
-    logger.info(f"Checkpoint DSN resolved (host hidden for security)")
-    return dsn
 
 
 def init_checkpointer() -> None:
     """
-    Initialise the PostgresSaver checkpointer.
+    Initialize the checkpointer.
 
-    Creates the checkpoint tables (``checkpoints``, ``checkpoint_blobs``,
-    ``checkpoint_writes``, ``checkpoint_migrations``) on first run.
-    Idempotent — safe to call on every startup.
-
-    Call this from ``main.py`` startup event BEFORE any agent invocations.
+    Currently uses MemorySaver (in-process). If you want cross-restart
+    persistence via Firestore, swap in a custom FirestoreCheckpointer here.
     """
-    global _checkpointer, _postgres_connection
-
-    try:
-        from langgraph.checkpoint.postgres import PostgresSaver
-        from psycopg import Connection
-
-        dsn = _build_dsn()
-
-        # Open a persistent connection with autocommit (required by setup)
-        conn = Connection.connect(dsn, autocommit=True)
-        _postgres_connection = conn
-
-        checkpointer = PostgresSaver(conn)
-
-        # Create checkpoint tables if they don't exist (idempotent)
-        checkpointer.setup()
-
-        _checkpointer = checkpointer
-        logger.info(
-            "PostgresSaver checkpointer initialised — "
-            "persistent conversation memory enabled"
-        )
-
-    except ImportError as exc:
-        logger.warning(
-            f"PostgresSaver dependencies not installed ({exc}). "
-            f"Falling back to in-memory MemorySaver."
-        )
-        _checkpointer = MemorySaver()
-
-    except Exception as exc:
-        logger.error(
-            f"Failed to initialise PostgresSaver: {exc}. "
-            f"Falling back to in-memory MemorySaver.",
-            exc_info=True,
-        )
-        _checkpointer = MemorySaver()
+    global _checkpointer
+    _checkpointer = MemorySaver()
+    logger.info(
+        "Checkpointer initialised — using MemorySaver "
+        "(in-process; conversations reset on restart)"
+    )
 
 
 def shutdown_checkpointer() -> None:
-    """
-    Close the PostgresSaver connection cleanly.
-
-    Call this from ``main.py`` shutdown event.
-    """
-    global _checkpointer, _postgres_connection
-
-    if _postgres_connection is not None:
-        try:
-            _postgres_connection.close()
-            logger.info("PostgresSaver connection closed")
-        except Exception as exc:
-            logger.warning(f"Error closing PostgresSaver connection: {exc}")
-        _postgres_connection = None
-
+    """Release the checkpointer on application shutdown."""
+    global _checkpointer
     _checkpointer = None
+    logger.info("Checkpointer shut down")
 
 
 def get_checkpointer():
     """
-    Return the active checkpointer instance.
+    Return the active checkpointer.
 
-    If ``init_checkpointer()`` has been called successfully, returns the
-    PostgresSaver.  Otherwise returns a fresh MemorySaver (safe for tests
-    and for the case where the DB is unavailable).
+    If init_checkpointer() has not been called (e.g. in tests),
+    returns a fresh MemorySaver so the agent can still function.
     """
     if _checkpointer is not None:
         return _checkpointer

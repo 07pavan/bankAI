@@ -10,8 +10,10 @@ from typing import List, Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
-    # Database
-    DATABASE_URL: str
+    # Firebase Configuration
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = None
+    FIREBASE_PROJECT_ID: Optional[str] = None
     
     # JWT
     JWT_SECRET_KEY: str
@@ -52,17 +54,10 @@ class LLMSettings(BaseSettings):
     LLM_API_KEY: Optional[str] = None
     LLM_MODEL: str = "grok-3-mini"
     LLM_TEMPERATURE: float = 0.3
-    LANGGRAPH_CHECKPOINT_DB: Optional[str] = None
-
     @property
     def is_configured(self) -> bool:
         """True when an API key is present, i.e. LLM features are enabled"""
         return bool(self.LLM_API_KEY)
-
-    @property
-    def checkpoint_db_url(self) -> str:
-        """Checkpoint DB URL — falls back to the main DATABASE_URL"""
-        return self.LANGGRAPH_CHECKPOINT_DB or settings.DATABASE_URL
 
     class Config:
         env_file = ".env"

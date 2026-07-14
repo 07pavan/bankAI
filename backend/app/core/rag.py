@@ -1,31 +1,27 @@
 """
-Lightweight SQL-based RAG (Retrieval-Augmented Generation) for BankAI.
+Lightweight Firestore-based RAG (Retrieval-Augmented Generation) for BankAI.
 
 Provides structured form metadata and banking FAQ context to the LLM
 system prompt — no vector database, no embeddings, no extra dependencies.
 
 Design rationale:
   BankAI has ~3 forms × ~25 total fields — a small knowledge base that
-  fits entirely in structured text.  The LLM needs to understand field
+  fits entirely in structured text. The LLM needs to understand field
   labels, validation rules, options, and common banking scenarios.
-  SQL queries + text formatting accomplish this at near-zero cost.
+  Firestore queries + text formatting accomplish this at near-zero cost.
 
 Functions:
   get_all_forms_summary(db)           → overview of all active forms
   get_form_context(form_id, db)       → full form structure with all fields
   get_field_context(form_id, key, db) → detailed metadata for one field
   get_banking_faq_context(query)      → relevant FAQ entries (keyword match)
-
-Usage in ai_agent_service.py:
-  context = get_field_context(form_id, "mobile", db)
-  # → "Field: Mobile Number | Type: text | Required: Yes | Pattern: ..."
-  # Injected into system prompt so the LLM can explain validation rules.
 """
 
-from typing import Optional
-from sqlalchemy.orm import Session
+from typing import Optional, Any
+from google.cloud.firestore import Client
 
-from app.models import Bank, Form, FormSection, FormField
+from app.database import get_db
+from app.models import COLL_BANKS, COLL_FORMS, COLL_FORM_SECTIONS, COLL_FORM_FIELDS
 from app.core.logging import get_logger
 
 logger = get_logger()
@@ -35,58 +31,57 @@ logger = get_logger()
 # 1. Form summary — all active forms at a glance
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_all_forms_summary(db: Session) -> str:
+def get_all_forms_summary(db: Optional[Client] = None) -> str:
     """
     Build a concise summary of all active forms across all banks.
 
     Returns plain text suitable for injection into an LLM system prompt.
     Includes: form name, description, bank name, field count.
-
-    Args:
-        db: Active SQLAlchemy session.
-
-    Returns:
-        Formatted text listing all active forms, or a fallback message
-        if no forms are found.
     """
-    banks = db.query(Bank).filter(Bank.is_active == True).order_by(Bank.name).all()
+    if db is None:
+        db = get_db()
 
-    if not banks:
+    banks = db.collection(COLL_BANKS).where("is_active", "==", True).order_by("name").stream()
+    bank_list = list(banks)
+
+    if not bank_list:
         return "No active banks or forms are currently available."
 
     lines: list[str] = ["## Available Banking Forms\n"]
 
-    for bank in banks:
+    for bank_doc in bank_list:
+        bank = bank_doc.to_dict()
+        bank_id = bank_doc.id
+
         forms = (
-            db.query(Form)
-            .filter(Form.bank_id == bank.id, Form.is_active == True)
-            .order_by(Form.name)
-            .all()
+            db.collection(COLL_FORMS)
+            .where("bank_id", "==", bank_id)
+            .where("is_active", "==", True)
+            .stream()
         )
-        if not forms:
+        form_list = list(forms)
+        if not form_list:
             continue
 
-        lines.append(f"### {bank.name} ({bank.code})")
+        lines.append(f"### {bank.get('name')} ({bank.get('code')})")
 
-        for form in forms:
-            field_count = (
-                db.query(FormField)
-                .filter(FormField.form_id == form.id, FormField.is_active == True)
-                .count()
-            )
-            required_count = (
-                db.query(FormField)
-                .filter(
-                    FormField.form_id == form.id,
-                    FormField.is_active == True,
-                    FormField.required == True,
-                )
-                .count()
-            )
+        for form_doc in form_list:
+            form = form_doc.to_dict()
+            form_id = form_doc.id
 
-            desc = form.description or "No description available"
+            fields = (
+                db.collection(COLL_FORM_FIELDS)
+                .where("form_id", "==", form_id)
+                .where("is_active", "==", True)
+                .stream()
+            )
+            field_list = [f.to_dict() for f in fields]
+            field_count = len(field_list)
+            required_count = sum(1 for f in field_list if f.get("required") is True)
+
+            desc = form.get("description") or "No description available"
             lines.append(
-                f"- **{form.name}** (Form ID: {form.id})\n"
+                f"- **{form.get('name')}** (Form ID: {form_id})\n"
                 f"  Description: {desc}\n"
                 f"  Fields: {field_count} total, {required_count} required"
             )
@@ -100,58 +95,56 @@ def get_all_forms_summary(db: Session) -> str:
 # 2. Full form context — all sections and fields
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_form_context(form_id: int, db: Session) -> str:
+def get_form_context(form_id: str, db: Optional[Client] = None) -> str:
     """
     Build a detailed context block for a single form, including all
     sections and fields with their validation rules and options.
-
-    This is useful when the LLM needs a full overview (e.g. answering
-    "what documents do I need?" or "how many fields are there?").
-
-    Args:
-        form_id: Primary key of the Form to retrieve.
-        db:      Active SQLAlchemy session.
-
-    Returns:
-        Formatted text with full form structure, or a fallback message
-        if the form is not found.
     """
-    form = db.query(Form).filter(Form.id == form_id, Form.is_active == True).first()
-    if not form:
-        return f"Form ID {form_id} not found or inactive."
+    if db is None:
+        db = get_db()
 
-    bank = db.query(Bank).filter(Bank.id == form.bank_id).first()
-    bank_name = bank.name if bank else "Unknown Bank"
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists:
+        return f"Form ID {form_id} not found."
+
+    form = form_doc.to_dict()
+    if not form.get("is_active", False):
+        return f"Form ID {form_id} is inactive."
+
+    bank_id = form.get("bank_id", "")
+    bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+    bank_name = bank_doc.to_dict().get("name", "Unknown Bank") if bank_doc.exists else "Unknown Bank"
 
     lines: list[str] = [
-        f"## {form.name}",
+        f"## {form.get('name')}",
         f"Bank: {bank_name}",
-        f"Description: {form.description or 'N/A'}",
+        f"Description: {form.get('description') or 'N/A'}",
         "",
     ]
 
     sections = (
-        db.query(FormSection)
-        .filter(FormSection.form_id == form.id)
-        .order_by(FormSection.order_index)
-        .all()
+        db.collection(COLL_FORM_SECTIONS)
+        .where("form_id", "==", form_id)
+        .order_by("order_index")
+        .stream()
     )
 
-    for section in sections:
-        lines.append(f"### Section: {section.name}")
+    for section_doc in sections:
+        section = section_doc.to_dict()
+        section_id = section_doc.id
+        lines.append(f"### Section: {section.get('name')}")
 
         fields = (
-            db.query(FormField)
-            .filter(
-                FormField.form_id == form.id,
-                FormField.section_id == section.id,
-                FormField.is_active == True,
-            )
-            .order_by(FormField.order_index)
-            .all()
+            db.collection(COLL_FORM_FIELDS)
+            .where("form_id", "==", form_id)
+            .where("section_id", "==", section_id)
+            .where("is_active", "==", True)
+            .order_by("order_index")
+            .stream()
         )
 
-        for field in fields:
+        for field_doc in fields:
+            field = field_doc.to_dict()
             lines.append(_format_field(field))
 
         lines.append("")  # blank line between sections
@@ -163,36 +156,30 @@ def get_form_context(form_id: int, db: Session) -> str:
 # 3. Single field context — detailed metadata for one field
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_field_context(form_id: int, field_key: str, db: Session) -> str:
+def get_field_context(form_id: str, field_key: str, db: Optional[Client] = None) -> str:
     """
     Build detailed context for a single form field, including its
     label, type, validation rules, options, and a helpful hint for
     the LLM to guide the user.
-
-    Injected into the filling_form_node system prompt so the LLM can
-    ask the right question and explain validation requirements.
-
-    Args:
-        form_id:   Primary key of the parent Form.
-        field_key: The field_key to look up (e.g. "mobile", "dob").
-        db:        Active SQLAlchemy session.
-
-    Returns:
-        Formatted text describing the field, or a fallback message
-        if the field is not found.
     """
-    field = (
-        db.query(FormField)
-        .filter(
-            FormField.form_id == form_id,
-            FormField.field_key == field_key,
-            FormField.is_active == True,
-        )
-        .first()
-    )
+    if db is None:
+        db = get_db()
 
-    if not field:
+    fields = (
+        db.collection(COLL_FORM_FIELDS)
+        .where("form_id", "==", form_id)
+        .where("field_key", "==", field_key)
+        .limit(1)
+        .stream()
+    )
+    field_doc = next(fields, None)
+
+    if not field_doc:
         return f"Field '{field_key}' not found in form {form_id}."
+
+    field = field_doc.to_dict()
+    if not field.get("is_active", False):
+        return f"Field '{field_key}' is inactive in form {form_id}."
 
     lines: list[str] = [
         "## Current Field Details",
@@ -210,7 +197,6 @@ def get_field_context(form_id: int, field_key: str, db: Session) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Each entry: (keywords, question, answer)
-# Keywords are used for simple keyword matching against user queries.
 _BANKING_FAQ: list[tuple[list[str], str, str]] = [
     (
         ["address", "aadhaar", "different", "mismatch", "changed", "moved"],
@@ -347,27 +333,12 @@ _BANKING_FAQ: list[tuple[list[str], str, str]] = [
 def get_banking_faq_context(query: Optional[str] = None) -> str:
     """
     Retrieve relevant banking FAQ entries based on keyword matching.
-
-    If *query* is provided, returns only FAQ entries whose keywords
-    match words in the query.  If no query or no matches, returns
-    the full FAQ as general context.
-
-    The FAQ is a static, in-memory knowledge base — no DB queries.
-    Designed to be injected into the LLM system prompt so it can
-    answer common "what if" user questions.
-
-    Args:
-        query: Optional user message to match against FAQ keywords.
-
-    Returns:
-        Formatted FAQ text (markdown-style Q&A pairs).
     """
     if query:
         query_words = set(query.lower().split())
         matched = []
 
         for keywords, question, answer in _BANKING_FAQ:
-            # Match if any FAQ keyword appears in the user's query
             if query_words & set(keywords):
                 matched.append((question, answer))
 
@@ -377,7 +348,6 @@ def get_banking_faq_context(query: Optional[str] = None) -> str:
                 lines.append(f"**Q: {q}**\n{a}\n")
             return "\n".join(lines)
 
-    # No query or no matches — return top-level summary
     lines = ["## General Banking FAQ\n"]
     for _, question, answer in _BANKING_FAQ:
         lines.append(f"**Q: {question}**\n{answer}\n")
@@ -388,21 +358,17 @@ def get_banking_faq_context(query: Optional[str] = None) -> str:
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _format_field(field: FormField) -> str:
+def _format_field(field: dict) -> str:
     """
-    Format a single FormField ORM object as a readable text block.
-
-    Includes: field_key, label, type, required, validation rules,
-    and options (for select/radio/checkbox fields).
+    Format a FormField document dictionary as a readable text block.
     """
     lines = [
-        f"- **{field.label}** (`{field.field_key}`)",
-        f"  Type: {field.field_type} | Required: {'Yes' if field.required else 'No'}",
+        f"- **{field.get('label')}** (`{field.get('field_key')}`)",
+        f"  Type: {field.get('field_type')} | Required: {'Yes' if field.get('required') else 'No'}",
     ]
 
-    # Validation rules
-    if field.validation_rule:
-        rules = field.validation_rule
+    rules = field.get("validation_rule")
+    if rules:
         rule_parts: list[str] = []
 
         if "pattern" in rules:
@@ -419,38 +385,34 @@ def _format_field(field: FormField) -> str:
         if rule_parts:
             lines.append(f"  Validation: {' | '.join(rule_parts)}")
 
-    # Options (select, radio, checkbox)
-    if field.options:
+    options = field.get("options")
+    if options:
         opts = ", ".join(
-            f"'{o['value']}' ({o['label']})" for o in field.options
+            f"'{o.get('value')}' ({o.get('label')})" for o in options
         )
         lines.append(f"  Options: {opts}")
 
     return "\n".join(lines)
 
 
-def _build_field_hint(field: FormField) -> str:
+def _build_field_hint(field: dict) -> str:
     """
     Generate a helpful hint for the LLM about how to ask for this field.
-
-    The hint tells the LLM what a valid answer looks like, so it can
-    guide the user and convert natural-language answers to the expected
-    format.
     """
     hints: list[str] = []
-    key = field.field_key.lower()
-    ftype = field.field_type.lower()
+    key = str(field.get("field_key", "")).lower()
+    ftype = str(field.get("field_type", "")).lower()
 
-    # Type-specific hints
     if ftype == "date":
         hints.append(
             "Ask the user for a date. Accept natural language like "
             "'June 15, 1995' and convert to YYYY-MM-DD format before "
-            "saving with answer_field."
+            "saving."
         )
     elif ftype in ("select", "radio"):
-        if field.options:
-            valid_values = [o["value"] for o in field.options]
+        options = field.get("options")
+        if options:
+            valid_values = [o.get("value") for o in options]
             hints.append(
                 f"Present the options clearly. Valid values to save: "
                 f"{valid_values}. Match the user's natural response to "
@@ -464,7 +426,6 @@ def _build_field_hint(field: FormField) -> str:
     elif ftype == "number":
         hints.append("Accept numeric input. Remove currency symbols or commas before saving.")
 
-    # Key-specific hints
     if "mobile" in key or "phone" in key:
         hints.append(
             "The user should provide a 10-digit Indian mobile number. "
@@ -500,9 +461,8 @@ def _build_field_hint(field: FormField) -> str:
             "symbols before saving. Mention any minimum requirement."
         )
 
-    # Validation-specific hints
-    if field.validation_rule:
-        rules = field.validation_rule
+    rules = field.get("validation_rule")
+    if rules:
         if "min" in rules:
             hints.append(f"Minimum value: {rules['min']}.")
         if "max" in rules:

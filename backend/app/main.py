@@ -1,6 +1,6 @@
 """
 BankAI — Production-Grade KYC Backend
-FastAPI server with PostgreSQL, encryption, and JWT authentication
+FastAPI server with Firebase Firestore, encryption, and JWT authentication
 """
 
 from fastapi import FastAPI, Request
@@ -95,27 +95,28 @@ def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    """Startup event - verify database connection, seed defaults, init checkpointer"""
-    from app.database import SessionLocal
-    from app.core.seed import seed_defaults
+    """Startup event — init Firestore, seed defaults, init checkpointer"""
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    logger.info("Database connection configured")
-    db = SessionLocal()
-    try:
-        seed_defaults(db)
-    finally:
-        db.close()
 
-    # Initialise persistent conversation memory (PostgresSaver)
+    # Initialise Firebase/Firestore connection
+    from app.database import init_db
+    init_db()
+    logger.info("Firestore connection initialised")
+
+    # Seed default banks, forms, and admin user
+    from app.core.seed import seed_defaults
+    seed_defaults()
+
+    # Initialise conversation checkpointer (MemorySaver)
     from app.core.checkpointer import init_checkpointer
     init_checkpointer()
 
-    # Recompile the agent graph with the persistent checkpointer
+    # Recompile the agent graph with the checkpointer
     if llm_settings.is_configured:
         try:
             from app.services.ai_agent_service import recompile_graph
             recompile_graph()
-            logger.info("Agent graph recompiled with persistent checkpointer")
+            logger.info("Agent graph recompiled with checkpointer")
         except Exception as exc:
             logger.warning(f"Could not recompile agent graph: {exc}")
 
@@ -131,7 +132,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Shutdown event — close persistent checkpointer connection"""
+    """Shutdown event — release checkpointer"""
     from app.core.checkpointer import shutdown_checkpointer
     shutdown_checkpointer()
     logger.info("Application shutting down")

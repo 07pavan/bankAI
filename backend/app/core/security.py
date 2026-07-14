@@ -1,5 +1,5 @@
 """
-Security utilities for JWT authentication
+Security utilities for JWT authentication (Firestore edition)
 """
 
 from datetime import datetime, timedelta
@@ -7,11 +7,10 @@ from typing import Optional
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.database import get_db
-
+from app.models import COLL_USERS
 
 security = HTTPBearer()
 
@@ -77,15 +76,15 @@ def verify_token(token: str) -> dict:
 
 def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> int:
+) -> str:
     """
-    Dependency to extract user ID from JWT token
+    Dependency to extract user ID string from JWT token.
 
     Args:
         credentials: HTTP Bearer token from request
 
     Returns:
-        User ID from token payload
+        User ID string (Firestore document ID)
 
     Raises:
         HTTPException: If token is invalid or missing user_id
@@ -100,63 +99,50 @@ def get_current_user_id(
             detail="Invalid authentication credentials"
         )
 
-    return int(user_id)
+    return user_id
 
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
+) -> dict:
     """
-    Dependency to fetch the full User object from DB using the JWT.
+    Dependency to fetch the full user document from Firestore using the JWT.
 
     Returns:
-        User ORM object
+        User dictionary with 'id' key
 
     Raises:
-        HTTPException 401: Token invalid / no user_id claim.
-        HTTPException 404: User record not found.
+        HTTPException 401: Token invalid.
+        HTTPException 404: User not found in Firestore.
     """
-    from app.models import User  # local import to avoid circular
-
-    token = credentials.credentials
-    payload = verify_token(token)
-
-    user_id_str: str = payload.get("sub")
-    if user_id_str is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-        )
-
-    user = db.query(User).filter(User.id == int(user_id_str)).first()
-    if not user:
+    user_id = get_current_user_id(credentials)
+    db = get_db()
+    user_doc = db.collection(COLL_USERS).document(user_id).get()
+    if not user_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    return user
+    return {"id": user_doc.id, **user_doc.to_dict()}
 
 
 def require_admin_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
+    current_user: dict = Depends(get_current_user),
+) -> dict:
     """
     Dependency that enforces admin role.
     Call this as a FastAPI Depends() on any admin-only endpoint.
 
     Returns:
-        User ORM object (role == 'admin' guaranteed)
+        User dict (role == 'admin' guaranteed)
 
     Raises:
         HTTPException 401: Token invalid.
         HTTPException 403: User is not an admin.
     """
-    user = get_current_user(credentials=credentials, db=db)
-    if user.role != "admin":
+    if current_user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
-    return user
+    return current_user

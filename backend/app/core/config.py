@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Encryption
     ENCRYPTION_KEY: str
     
+    # Deepgram
+    DEEPGRAM_API_KEY: Optional[str] = None
+    
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"

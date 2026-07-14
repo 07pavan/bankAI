@@ -32,7 +32,8 @@
         busy: false,
         recognition: null,
         synth: window.speechSynthesis,
-        speechEnabled: false, // Start disabled to avoid unsolicited auto-TTS
+        speechEnabled: false,  // Start disabled to avoid unsolicited auto-TTS
+        currentAudio: null,    // Playback handle for Deepgram audio stream
     };
 
     // ── Speech Recognition setup ──────────────────────────────────────────────
@@ -71,15 +72,76 @@
     }
 
     // ── Text-to-Speech ────────────────────────────────────────────────────────
-    function speak(text, callback = null) {
-        if (!state.synth || !state.speechEnabled) {
+    async function speak(text, callback = null) {
+        if (!state.speechEnabled) {
             if (callback) callback();
             return;
         }
-        state.synth.cancel();
+
+        // Cancel any active browser native speech or active audio playback
+        if (state.synth) state.synth.cancel();
+        if (state.currentAudio) {
+            try {
+                state.currentAudio.pause();
+            } catch (_) {}
+            state.currentAudio = null;
+        }
         
         // Remove markdown elements from speech text
         const speechText = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+
+        try {
+            panel.classList.add('speaking');
+            
+            // Call the backend speech proxy endpoint
+            const res = await fetch('/api/v1/conversation/speak', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ text: speechText })
+            });
+
+            if (!res.ok) {
+                throw new Error('Deepgram TTS failed or not configured');
+            }
+
+            const blob = await res.blob();
+            const audioUrl = URL.createObjectURL(blob);
+            const audio = new Audio(audioUrl);
+            state.currentAudio = audio;
+
+            audio.onended = () => {
+                panel.classList.remove('speaking');
+                URL.revokeObjectURL(audioUrl);
+                state.currentAudio = null;
+                if (callback) callback();
+            };
+
+            audio.onerror = () => {
+                panel.classList.remove('speaking');
+                URL.revokeObjectURL(audioUrl);
+                state.currentAudio = null;
+                // Fall back to browser voice on audio playback error
+                speakFallback(speechText, callback);
+            };
+
+            await audio.play();
+
+        } catch (err) {
+            console.warn("Deepgram TTS unavailable, falling back to browser-native voice:", err);
+            speakFallback(speechText, callback);
+        }
+    }
+
+    // Browser-native speech synthesis fallback
+    function speakFallback(speechText, callback) {
+        if (!state.synth) {
+            panel.classList.remove('speaking');
+            if (callback) callback();
+            return;
+        }
 
         const utt = new SpeechSynthesisUtterance(speechText);
         utt.lang = 'en-IN';
@@ -92,8 +154,14 @@
         if (indVoice) utt.voice = indVoice;
 
         utt.onstart = () => panel.classList.add('speaking');
-        utt.onend = () => panel.classList.remove('speaking');
-        utt.onerror = () => panel.classList.remove('speaking');
+        utt.onend = () => {
+            panel.classList.remove('speaking');
+            if (callback) callback();
+        };
+        utt.onerror = () => {
+            panel.classList.remove('speaking');
+            if (callback) callback();
+        };
         state.synth.speak(utt);
     }
 

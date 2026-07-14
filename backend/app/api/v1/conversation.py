@@ -234,3 +234,70 @@ def conversation_next(
         conversation_state=conversation_state,
     )
 
+
+# ---------------------------------------------------------------------------
+# POST /speak — proxy TTS to Deepgram API
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import StreamingResponse
+import httpx
+from app.core.config import settings
+
+class SpeakRequest(BaseModel):
+    """Request body for TTS speak endpoint."""
+    text: str
+
+
+@router.post("/speak", summary="Synthesise speech using Deepgram TTS")
+async def speak_text(
+    payload: SpeakRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Proxy Text-to-Speech requests to the Deepgram Aura TTS API.
+    Streams back raw audio bytes (audio/mpeg) to avoid exposing keys on client side.
+    """
+    if not settings.DEEPGRAM_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Deepgram TTS is not configured. Falling back to browser voice."
+        )
+
+    text_to_speak = payload.text.strip()
+    if not text_to_speak:
+        raise HTTPException(status_code=400, detail="Text cannot be empty.")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Aura TTS API request (English female voice Aura-Asteria)
+            url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en"
+            headers = {
+                "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            body = {"text": text_to_speak}
+            
+            # Request audio stream from Deepgram
+            response = await client.post(url, headers=headers, json=body, timeout=30.0)
+            
+            if response.status_code != 200:
+                logger.error(f"Deepgram TTS failed: status={response.status_code} body={response.text}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Deepgram TTS service error: {response.text[:200]}"
+                )
+            
+            # Stream the audio response back to the client
+            return StreamingResponse(
+                response.iter_bytes(),
+                media_type="audio/mpeg"
+            )
+            
+    except httpx.RequestError as exc:
+        logger.error(f"Failed to connect to Deepgram TTS: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to connect to Deepgram Text-to-Speech service."
+        )
+
+

@@ -301,3 +301,43 @@ async def speak_text(
         )
 
 
+@router.post("/stt-token", summary="Generate short-lived Deepgram STT token")
+async def generate_stt_token(
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Generate a short-lived token (60-second TTL) for Deepgram STT WebSocket connection
+    to avoid exposing main keys on the client-side browser.
+    """
+    if not settings.DEEPGRAM_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Deepgram service is not configured."
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            url = "https://api.deepgram.com/v1/auth/grant"
+            headers = {
+                "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            body = {"ttl_seconds": 60}
+            
+            res = await client.post(url, headers=headers, json=body, timeout=10.0)
+            if res.status_code != 200:
+                logger.error(f"Failed to grant token from Deepgram: status={res.status_code} body={res.text}")
+                raise HTTPException(status_code=502, detail="Failed to acquire speech token.")
+            
+            data = res.json()
+            return {"token": data.get("access_token")}
+            
+    except Exception as exc:
+        logger.error(f"Error requesting Deepgram token: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Speech service authentication failed."
+        )
+
+
+

@@ -46,6 +46,8 @@
     let animationFrameId = null;
     let micStream = null;
     let micSource = null;
+    let mediaRecorder = null;
+    let webSocket = null;
 
     if (SpeechRec) {
         recognition = new SpeechRec();
@@ -279,42 +281,134 @@
     }
 
     // ── Mic controls ─────────────────────────────────────────────────────────
-    function startListening() {
-        if (!recognition) {
-            BankAI_Toast.error('🎙️ Voice input not supported in this browser');
-            return;
-        }
+    async function startListening() {
         stopActiveSpeech(); // Cancel any active speak playback immediately when user triggers mic
         panel.classList.add('listening');
         state.speechEnabled = true; // Enable speech output once user interacts with mic
         
-        // Connect microphone for visual waveform
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    const { audioCtx: ctx, analyser: ana } = getAudioContext();
-                    micStream = stream;
-                    micSource = ctx.createMediaStreamSource(stream);
-                    micSource.connect(ana);
-                })
-                .catch(err => console.warn('Microphone visualization failed:', err));
+        // Connect microphone for visual waveform and capture audio stream
+        let userStream = null;
+        try {
+            userStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micStream = userStream;
+            const { audioCtx: ctx, analyser: ana } = getAudioContext();
+            micSource = ctx.createMediaStreamSource(userStream);
+            micSource.connect(ana);
+        } catch (err) {
+            console.warn('Microphone stream access failed:', err);
+            showMicStatus('🎙️ Microphone access denied or unavailable.', true);
+            panel.classList.remove('listening');
+            return;
         }
 
+        // Try to initialize Deepgram WebSocket STT
+        let deepgramConnected = false;
         try {
-            recognition.start();
-            btnMic.classList.add('listening');
-            btnMic.setAttribute('aria-label', 'Stop listening');
-            showMicStatus('🎙️ Listening… speak now');
-        } catch (_) { /* already started */ }
+            const tokenRes = await fetch('/api/v1/conversation/stt-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!tokenRes.ok) throw new Error('Could not get Deepgram STT token');
+
+            const tokenData = await tokenRes.json();
+            const tempToken = tokenData.token;
+
+            // Open WebSocket to Deepgram (using Sec-WebSocket-Protocol for browser auth)
+            const wsUrl = 'wss://api.deepgram.com/v1/listen?model=nova-2-general&language=en-IN&endpointing=300&interim_results=true';
+            webSocket = new WebSocket(wsUrl, ['token', tempToken]);
+
+            webSocket.onopen = () => {
+                deepgramConnected = true;
+                btnMic.classList.add('listening');
+                btnMic.setAttribute('aria-label', 'Stop listening');
+                showMicStatus('🎙️ Listening (Deepgram)… speak now');
+
+                // Start recording and sending chunks
+                mediaRecorder = new MediaRecorder(userStream, { mimeType: 'audio/webm' });
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && webSocket.readyState === WebSocket.OPEN) {
+                        webSocket.send(event.data);
+                    }
+                };
+                mediaRecorder.start(250); // Send 250ms chunks
+            };
+
+            let finalTranscript = '';
+            webSocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const transcript = data.channel?.alternatives?.[0]?.transcript || '';
+                
+                if (transcript) {
+                    showMicStatus(`🎙️ "${transcript}"`);
+                    if (data.is_final) {
+                        finalTranscript += (finalTranscript ? ' ' : '') + transcript;
+                    }
+                }
+
+                // If Deepgram endpointing determines silence/end of speech
+                if (data.speech_final) {
+                    stopListening();
+                    if (finalTranscript.trim()) {
+                        inputEl.value = finalTranscript.trim();
+                        send();
+                    }
+                }
+            };
+
+            webSocket.onerror = (err) => {
+                console.error("Deepgram WS error:", err);
+                if (!deepgramConnected) {
+                    fallbackToNativeSTT();
+                }
+            };
+
+            webSocket.onclose = () => {
+                stopListening();
+            };
+
+        } catch (err) {
+            console.warn("Deepgram STT initialization failed, falling back to native:", err);
+            fallbackToNativeSTT();
+        }
+
+        function fallbackToNativeSTT() {
+            if (!recognition) {
+                BankAI_Toast.error('🎙️ Voice input not supported in this browser');
+                stopListening();
+                return;
+            }
+            try {
+                recognition.start();
+                btnMic.classList.add('listening');
+                btnMic.setAttribute('aria-label', 'Stop listening');
+                showMicStatus('🎙️ Listening (Browser fallback)… speak now');
+            } catch (_) {}
+        }
     }
 
     function stopListening() {
-        if (recognition) try { recognition.stop(); } catch (_) { }
         btnMic.classList.remove('listening');
         btnMic.setAttribute('aria-label', 'Start voice input');
         panel.classList.remove('listening');
         showMicStatus('');
-        
+
+        // Stop browser-native SpeechRecognition if active
+        if (recognition) try { recognition.stop(); } catch (_) { }
+
+        // Stop Deepgram MediaRecorder and WebSocket
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            try { mediaRecorder.stop(); } catch (_) {}
+            mediaRecorder = null;
+        }
+        if (webSocket) {
+            try { webSocket.close(); } catch (_) {}
+            webSocket = null;
+        }
+
         // Disconnect mic audio nodes
         if (micSource) {
             try { micSource.disconnect(); } catch (_) {}

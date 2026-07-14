@@ -39,6 +39,14 @@
     // ── Speech Recognition setup ──────────────────────────────────────────────
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
+
+    // ── Web Audio Analyser for Waveform ──
+    let audioCtx = null;
+    let analyser = null;
+    let animationFrameId = null;
+    let micStream = null;
+    let micSource = null;
+
     if (SpeechRec) {
         recognition = new SpeechRec();
         recognition.lang = 'en-IN';
@@ -80,6 +88,9 @@
             } catch (_) {}
             state.currentAudio = null;
         }
+        if (analyser) {
+            try { analyser.disconnect(); } catch (_) {}
+        }
         panel.classList.remove('speaking');
     }
 
@@ -115,6 +126,16 @@
             const audioUrl = URL.createObjectURL(blob);
             const audio = new Audio(audioUrl);
             state.currentAudio = audio;
+
+            // Connect to analyser for waveform animation
+            try {
+                const { audioCtx: ctx, analyser: ana } = getAudioContext();
+                const source = ctx.createMediaElementSource(audio);
+                source.connect(ana);
+                ana.connect(ctx.destination);
+            } catch (err) {
+                console.warn('Audio visualization link failed:', err);
+            }
 
             audio.onended = () => {
                 panel.classList.remove('speaking');
@@ -169,6 +190,94 @@
         state.synth.speak(utt);
     }
 
+    // ── Web Audio Analyser and Animation logic ──
+    function getAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 64; // Small fftSize for clean circular bars
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return { audioCtx, analyser };
+    }
+
+    function startWaveformAnimation() {
+        const canvas = document.getElementById('voiceWaveform');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 88 * dpr;
+        canvas.height = 88 * dpr;
+        ctx.scale(dpr, dpr);
+        
+        const { analyser: ana } = getAudioContext();
+        const bufferLength = ana.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        function draw() {
+            animationFrameId = requestAnimationFrame(draw);
+            ctx.clearRect(0, 0, 88, 88);
+            
+            const isSpeakingOrListening = panel.classList.contains('speaking') || btnMic.classList.contains('listening');
+            
+            if (isSpeakingOrListening) {
+                ana.getByteFrequencyData(dataArray);
+            } else {
+                dataArray.fill(0);
+            }
+            
+            const centerX = 44;
+            const centerY = 44;
+            const baseRadius = 34; // just outside the 64px avatar
+            
+            ctx.beginPath();
+            const numPoints = 60;
+            for (let i = 0; i < numPoints; i++) {
+                const angle = (i / numPoints) * Math.PI * 2;
+                const dataIndex = Math.floor((i / numPoints) * bufferLength);
+                let val = dataArray[dataIndex] || 0;
+                
+                // If fallback speech synthesis is speaking, simulate waveform
+                if (panel.classList.contains('speaking') && !state.currentAudio) {
+                    val = 40 + Math.random() * 30;
+                }
+                
+                const amplitude = (val / 255) * 12; // max 12px wave offset
+                const r = baseRadius + amplitude;
+                
+                const x = centerX + Math.cos(angle) * r;
+                const y = centerY + Math.sin(angle) * r;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.closePath();
+            
+            const grad = ctx.createRadialGradient(centerX, centerY, baseRadius, centerX, centerY, baseRadius + 12);
+            grad.addColorStop(0, '#818cf8');
+            grad.addColorStop(0.5, '#a78bfa');
+            grad.addColorStop(1, 'rgba(167, 139, 250, 0)');
+            
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            if (panel.classList.contains('speaking')) {
+                ctx.fillStyle = 'rgba(129, 140, 248, 0.05)';
+                ctx.fill();
+            }
+        }
+        
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        draw();
+    }
+
     // ── Mic controls ─────────────────────────────────────────────────────────
     function startListening() {
         if (!recognition) {
@@ -176,7 +285,21 @@
             return;
         }
         stopActiveSpeech(); // Cancel any active speak playback immediately when user triggers mic
+        panel.classList.add('listening');
         state.speechEnabled = true; // Enable speech output once user interacts with mic
+        
+        // Connect microphone for visual waveform
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const { audioCtx: ctx, analyser: ana } = getAudioContext();
+                    micStream = stream;
+                    micSource = ctx.createMediaStreamSource(stream);
+                    micSource.connect(ana);
+                })
+                .catch(err => console.warn('Microphone visualization failed:', err));
+        }
+
         try {
             recognition.start();
             btnMic.classList.add('listening');
@@ -189,7 +312,23 @@
         if (recognition) try { recognition.stop(); } catch (_) { }
         btnMic.classList.remove('listening');
         btnMic.setAttribute('aria-label', 'Start voice input');
+        panel.classList.remove('listening');
         showMicStatus('');
+        
+        // Disconnect mic audio nodes
+        if (micSource) {
+            try { micSource.disconnect(); } catch (_) {}
+            micSource = null;
+        }
+        if (micStream) {
+            try {
+                micStream.getTracks().forEach(track => track.stop());
+            } catch (_) {}
+            micStream = null;
+        }
+        if (analyser) {
+            try { analyser.disconnect(); } catch (_) {}
+        }
     }
 
     function showMicStatus(msg, isError = false) {
@@ -851,6 +990,7 @@
             });
         }
 
+        startWaveformAnimation();
         greet();
     }
 

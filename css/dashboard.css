@@ -979,3 +979,22 @@ canvas#signatureCanvas {
     gap: 0.75rem;
 }
 
+
+/* ── Real-Time Voice Waveform Canvas ── */
+.voice-waveform {
+    position: absolute;
+    inset: -12px;
+    width: 88px;
+    height: 88px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Hide the static ring when speaking or listening */
+.ai-panel.speaking .robot-ring,
+.ai-panel.listening .robot-ring {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+

@@ -20,9 +20,9 @@ LLM Integration:
 """
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
+from google.cloud.firestore import Client
 
 from app.database import get_db
 from app.core.security import get_current_user_id
@@ -45,7 +45,7 @@ class TestResponse(BaseModel):
     """Response from GET /conversation/test."""
     reply: str
     conversation_state: str
-    user_id: int
+    user_id: str
     thread_id: str
     llm_configured: bool
     error: Optional[str] = None
@@ -54,7 +54,7 @@ class TestResponse(BaseModel):
 @router.get("/test", response_model=TestResponse, summary="Live AI agent test")
 def conversation_test(
     message: str = "Hello, what can you help me with?",
-    user_id: int = 1,
+    user_id: str = "1",
 ):
     """
     Quick test endpoint for the LangGraph AI agent.
@@ -127,8 +127,8 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse, summary="Pre-submission chat mode")
 def conversation_chat(
     payload: ChatRequest,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    db: Client = Depends(get_db),
 ):
     """
     Stateless guarded chat handler — runs BEFORE any form submission exists.
@@ -160,7 +160,7 @@ def conversation_chat(
 
 class ConversationNextRequest(BaseModel):
     """Body for POST /conversation/next."""
-    submission_id: int
+    submission_id: str
     message: str = Field(..., min_length=1)  # raw voice transcript; must be non-empty
 
 
@@ -171,6 +171,7 @@ class ConversationNextResponse(BaseModel):
     status: str                 # "in_progress" | "completed"
     current_field_index: Optional[int] = None  # For frontend progress bar
     total_fields: Optional[int] = None         # For frontend progress bar
+    conversation_state: Optional[str] = None    # Current state of the conversation
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +181,8 @@ class ConversationNextResponse(BaseModel):
 @router.post("/next", response_model=ConversationNextResponse)
 def conversation_next(
     payload: ConversationNextRequest,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+    db: Client = Depends(get_db),
 ):
     """
     Process one turn of the voice conversation.
@@ -219,10 +220,17 @@ def conversation_next(
         current_idx = turn.progress.current_field_index
         total = turn.progress.total_fields
 
+    # Load submission from DB to get the current conversation state
+    from app.services import submission_service
+    sub = submission_service.get_submission(payload.submission_id, user_id)
+    conversation_state = sub.get("conversation_state")
+
     return ConversationNextResponse(
         next_question=turn.agent_message,
         field_key=turn.field_key,
         status="completed" if turn.is_complete else "in_progress",
         current_field_index=current_idx,
         total_fields=total,
+        conversation_state=conversation_state,
     )
+

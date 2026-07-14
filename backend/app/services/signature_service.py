@@ -18,9 +18,9 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 
-from app.models import Submission, ConversationState
+from app.database import get_db
+from app.models import COLL_SUBMISSIONS, ConversationState
 from app.core.logging import get_logger
 
 logger = get_logger()
@@ -36,19 +36,17 @@ def _ensure_signature_dir() -> None:
 
 
 def save_signature(
-    submission_id: int,
-    user_id: int,
+    submission_id: str,
+    user_id: str,
     base64_image: str,
-    db: Session,
 ) -> dict:
     """
     Decode a base64 signature image, save to disk, and update the submission.
 
     Args:
-        submission_id: ID of the submission to attach the signature to.
+        submission_id: Firestore document ID of the submission.
         user_id:       Authenticated user ID (for ownership check).
         base64_image:  Base64-encoded image string (with or without data URL prefix).
-        db:            Active SQLAlchemy session.
 
     Returns:
         dict with keys: submission_id, signature_path, signed_at
@@ -67,29 +65,32 @@ def save_signature(
             detail="Signature image data is required.",
         )
 
-    # --- Load submission ---
-    sub = db.query(Submission).filter(Submission.id == submission_id).first()
-    if not sub:
+    # --- Load submission from Firestore ---
+    db = get_db()
+    sub_doc = db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+    if not sub_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Submission {submission_id} not found.",
         )
+    sub = sub_doc.to_dict()
 
     # --- Ownership check ---
-    if sub.user_id != user_id:
+    if sub.get("user_id") != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this submission.",
         )
 
     # --- State check: only allow in REVIEW or SIGNATURE state ---
-    allowed_states = {ConversationState.REVIEW, ConversationState.SIGNATURE}
-    if sub.conversation_state not in allowed_states:
+    current_state = sub.get("conversation_state")
+    allowed_states = {ConversationState.REVIEW.value, ConversationState.SIGNATURE.value}
+    if current_state not in allowed_states:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Signature can only be captured in REVIEW or SIGNATURE state. "
-                f"Current state: {sub.conversation_state}"
+                f"Current state: {current_state}"
             ),
         )
 
@@ -147,22 +148,25 @@ def save_signature(
             detail="Failed to save signature. Please try again.",
         )
 
-    # --- Update submission record ---
+    # --- Update Firestore submission document ---
     now = datetime.now(timezone.utc)
     # Store RELATIVE path in DB (portable across OS / Docker)
-    sub.signature_path = f"signatures/{filename}"
-    sub.signed_at = now
+    relative_path = f"signatures/{filename}"
+
+    update_payload: dict = {
+        "signature_path": relative_path,
+        "signed_at": now,
+    }
 
     # Transition to SIGNATURE state if currently in REVIEW
-    if sub.conversation_state == ConversationState.REVIEW:
-        sub.conversation_state = ConversationState.SIGNATURE
+    if current_state == ConversationState.REVIEW.value:
+        update_payload["conversation_state"] = ConversationState.SIGNATURE.value
         logger.info(
             f"Submission {submission_id} transitioned REVIEW → SIGNATURE "
             f"after signature capture"
         )
 
-    db.commit()
-    db.refresh(sub)
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update(update_payload)
 
     logger.info(
         f"Signature saved: submission={submission_id} user={user_id} "
@@ -171,6 +175,6 @@ def save_signature(
 
     return {
         "submission_id": submission_id,
-        "signature_path": f"signatures/{filename}",
+        "signature_path": relative_path,
         "signed_at": now.isoformat(),
     }

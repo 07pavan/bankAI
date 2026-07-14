@@ -19,7 +19,6 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm, cm
@@ -31,9 +30,11 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 
+from app.database import get_db
 from app.models import (
-    Submission, SubmissionData, Form, FormField, FormSection,
-    Bank, SubmissionStatus,
+    COLL_SUBMISSIONS, COLL_FORMS, COLL_FORM_SECTIONS,
+    COLL_FORM_FIELDS, COLL_SUBMISSION_DATA, COLL_BANKS,
+    SubmissionStatus,
 )
 from app.core.logging import get_logger
 
@@ -86,14 +87,13 @@ def _mask_sensitive_value(field_key: str, value: str) -> str:
     return value
 
 
-def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
+def generate_pdf(submission_id: str, user_id: str) -> str:
     """
     Generate a PDF for a completed submission.
 
     Args:
-        submission_id: ID of the submission.
+        submission_id: Firestore document ID of the submission.
         user_id:       Authenticated user ID (for ownership check).
-        db:            Active SQLAlchemy session.
 
     Returns:
         Absolute path to the generated PDF file.
@@ -103,73 +103,86 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
         HTTPException 403: Caller does not own this submission.
         HTTPException 409: Submission not yet completed.
     """
+    db = get_db()
+
     # --- Load submission ---
-    sub = db.query(Submission).filter(Submission.id == submission_id).first()
-    if not sub:
+    sub_doc = db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+    if not sub_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Submission {submission_id} not found.",
         )
+    sub = sub_doc.to_dict()
 
     # --- Ownership check ---
-    if sub.user_id != user_id:
+    if sub.get("user_id") != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this submission.",
         )
 
     # --- Status check ---
-    if sub.status != SubmissionStatus.COMPLETED:
+    if sub.get("status") != SubmissionStatus.COMPLETED.value:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="PDF can only be generated for completed submissions.",
         )
 
-    # --- Load form structure ---
-    form = db.query(Form).filter(Form.id == sub.form_id).first()
-    if not form:
+    form_id = sub.get("form_id")
+
+    # --- Load form ---
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Form definition not found.",
         )
+    form = form_doc.to_dict()
 
-    bank = db.query(Bank).filter(Bank.id == form.bank_id).first()
-    bank_name = bank.name if bank else "BankAI"
+    # --- Load bank name ---
+    bank_id = form.get("bank_id")
+    bank_name = "BankAI"
+    if bank_id:
+        bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+        if bank_doc.exists:
+            bank_name = bank_doc.to_dict().get("name", "BankAI")
 
-    # --- Load sections and fields ---
-    sections = (
-        db.query(FormSection)
-        .filter(FormSection.form_id == form.id)
-        .order_by(FormSection.order_index)
-        .all()
+    # --- Load sections (ordered) ---
+    sections_query = (
+        db.collection(COLL_FORM_SECTIONS)
+        .where("form_id", "==", form_id)
+        .order_by("order_index")
+        .stream()
     )
+    sections = [{"id": d.id, **d.to_dict()} for d in sections_query]
 
-    fields = (
-        db.query(FormField)
-        .filter(FormField.form_id == form.id, FormField.is_active == True)
-        .order_by(FormField.order_index)
-        .all()
+    # --- Load active fields (ordered) ---
+    fields_query = (
+        db.collection(COLL_FORM_FIELDS)
+        .where("form_id", "==", form_id)
+        .where("is_active", "==", True)
+        .order_by("order_index")
+        .stream()
     )
+    fields = [{"id": d.id, **d.to_dict()} for d in fields_query]
 
-    # Build field lookup: field_key → FormField
-    field_map = {f.field_key: f for f in fields}
-
-    # Build section lookup: section_id → [FormField]
-    section_fields: dict[int, list] = {}
+    # Build section lookup: section_id → [field]
+    section_fields: dict[str, list] = {}
     unsectioned_fields: list = []
     for f in fields:
-        if f.section_id:
-            section_fields.setdefault(f.section_id, []).append(f)
+        sid = f.get("section_id")
+        if sid:
+            section_fields.setdefault(sid, []).append(f)
         else:
             unsectioned_fields.append(f)
 
-    # --- Load submitted data ---
-    data_rows = (
-        db.query(SubmissionData)
-        .filter(SubmissionData.submission_id == submission_id)
-        .all()
+    # --- Load submitted answers ---
+    data_query = (
+        db.collection(COLL_SUBMISSION_DATA)
+        .where("submission_id", "==", submission_id)
+        .stream()
     )
-    answers = {d.field_key: d.value or "" for d in data_rows}
+    answers = {d.to_dict().get("field_key"): d.to_dict().get("value", "") for d in data_query}
 
     # --- Build PDF ---
     _ensure_pdf_dir()
@@ -237,12 +250,12 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
 
     # --- Header ---
     elements.append(Paragraph(f"🏦 {bank_name}", styles['BankHeader']))
-    elements.append(Paragraph(form.name, styles['FormTitle']))
+    elements.append(Paragraph(form.get("name", "Application"), styles['FormTitle']))
     elements.append(Spacer(1, 4 * mm))
 
     # Application metadata
     meta_data = [
-        ["Application ID:", f"#{sub.id}"],
+        ["Application ID:", f"#{submission_id}"],
         ["Date:", datetime.now(timezone.utc).strftime("%d %B %Y, %H:%M UTC")],
         ["Status:", "Completed ✅"],
     ]
@@ -266,22 +279,27 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
 
     # --- Sections with fields ---
     def _render_fields(field_list: list) -> None:
-        """Render a list of FormField objects as table rows."""
+        """Render a list of field dicts as table rows."""
         table_data = []
         for field in field_list:
-            raw_value = answers.get(field.field_key, "—")
-            display_value = _mask_sensitive_value(field.field_key, raw_value) if raw_value != "—" else "—"
+            field_key = field.get("field_key", "")
+            raw_value = answers.get(field_key, "—") or "—"
+            display_value = (
+                _mask_sensitive_value(field_key, raw_value)
+                if raw_value != "—" else "—"
+            )
 
             # Resolve select/radio display labels
-            if field.options and raw_value != "—":
-                for opt in field.options:
+            options = field.get("options") or []
+            if options and raw_value != "—":
+                for opt in options:
                     if opt.get("value") == raw_value:
                         display_value = opt.get("label", raw_value)
                         break
 
-            required_marker = " *" if field.required else ""
+            required_marker = " *" if field.get("required") else ""
             table_data.append([
-                Paragraph(f"{field.label}{required_marker}", styles['FieldLabel']),
+                Paragraph(f"{field.get('label', field_key)}{required_marker}", styles['FieldLabel']),
                 Paragraph(display_value, styles['FieldValue']),
             ])
 
@@ -297,11 +315,12 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
 
     if sections:
         for section in sections:
-            s_fields = section_fields.get(section.id, [])
+            s_id = section.get("id")
+            s_fields = section_fields.get(s_id, [])
             if not s_fields:
                 continue
             elements.append(
-                Paragraph(f"📋 {section.name}", styles['SectionHeader'])
+                Paragraph(f"📋 {section.get('name', 'Section')}", styles['SectionHeader'])
             )
             _render_fields(s_fields)
             elements.append(Spacer(1, 4 * mm))
@@ -322,10 +341,11 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
     ))
 
     # Resolve relative path from DB to absolute path on this OS
+    sig_rel_path = sub.get("signature_path")
     sig_abs_path = None
-    if sub.signature_path:
+    if sig_rel_path:
         sig_abs_path = os.path.normpath(
-            os.path.join(_BACKEND_DIR, sub.signature_path)
+            os.path.join(_BACKEND_DIR, sig_rel_path)
         )
 
     if sig_abs_path and os.path.isfile(sig_abs_path):
@@ -342,10 +362,16 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
                 Paragraph("[Signature on file]", styles['FieldValue'])
             )
 
-        if sub.signed_at:
+        signed_at = sub.get("signed_at")
+        if signed_at:
+            # Firestore Timestamp or Python datetime
+            if hasattr(signed_at, "strftime"):
+                signed_str = signed_at.strftime('%d %B %Y, %H:%M UTC')
+            else:
+                signed_str = str(signed_at)
             elements.append(Spacer(1, 2 * mm))
             elements.append(Paragraph(
-                f"Signed on: {sub.signed_at.strftime('%d %B %Y, %H:%M UTC')}",
+                f"Signed on: {signed_str}",
                 styles['FieldLabel'],
             ))
     else:
@@ -375,11 +401,10 @@ def generate_pdf(submission_id: int, user_id: int, db: Session) -> str:
             detail="Failed to generate PDF. Please try again.",
         )
 
-    # --- Update submission ---
-    # Store RELATIVE path in DB (portable across OS / Docker)
-    sub.pdf_path = f"pdfs/{filename}"
-    db.commit()
-    db.refresh(sub)
+    # --- Update submission with pdf_path ---
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "pdf_path": f"pdfs/{filename}",
+    })
 
     logger.info(
         f"PDF generated: submission={submission_id} user={user_id} file={filename}"

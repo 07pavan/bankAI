@@ -1,15 +1,16 @@
 """
-KYC Service Layer
-Business logic for KYC submission, duplicate detection, and status retrieval
+KYC Service Layer — Firestore edition
+Business logic for KYC submission, duplicate detection, and status retrieval.
 """
 
-from sqlalchemy.orm import Session
-from typing import Tuple, Optional
 import base64
 import os
 import uuid
+from datetime import datetime, timezone
+from typing import Optional, Tuple
 
-from app.models import User, KYCSubmission, KYCStatus
+from app.database import get_db
+from app.models import KYCStatus, COLL_USERS, COLL_KYC_SUBMISSIONS
 from app.core.encryption import encryption_service
 from app.core.logging import get_logger
 
@@ -23,9 +24,8 @@ os.makedirs(SELFIE_DIR, exist_ok=True)
 def save_selfie(data_url: str) -> str:
     """
     Save a base64 data URL as a JPEG file.
-    Returns the file path.
+    Returns the relative file path.
     """
-    # Strip data URL prefix: "data:image/jpeg;base64,..."
     if "," in data_url:
         data_url = data_url.split(",", 1)[1]
 
@@ -37,52 +37,54 @@ def save_selfie(data_url: str) -> str:
         f.write(img_bytes)
 
     logger.info(f"Saved selfie to {filepath}")
-    return filepath
+    return filename  # Store relative filename only
 
 
 def submit_kyc(
     aadhaar: str,
     pan: str,
     selfie: Optional[str],
-    db: Session
-) -> Tuple[User, KYCSubmission, bool]:
+) -> Tuple[dict, dict, bool]:
     """
-    Submit KYC data with duplicate Aadhaar detection
-    
-    Args:
-        aadhaar: Aadhaar number (12 digits)
-        pan: PAN number
-        selfie: Optional base64 selfie data URL
-        db: Database session
-    
+    Submit KYC data with duplicate Aadhaar detection.
+
     Returns:
-        Tuple of (User, KYCSubmission, is_new_user)
+        Tuple of (user_doc, kyc_doc, is_new_user)
         - is_new_user: True if new registration, False if existing user (login)
     """
-    # Generate Aadhaar hash for duplicate detection
+    db = get_db()
     aadhaar_hash = encryption_service.hash_aadhaar(aadhaar)
-    
+
     # Check if user already exists
-    existing_user = db.query(User).filter(User.aadhaar_hash == aadhaar_hash).first()
-    
-    if existing_user:
+    existing_users = (
+        db.collection(COLL_USERS)
+        .where("aadhaar_hash", "==", aadhaar_hash)
+        .limit(1)
+        .stream()
+    )
+    existing_user_doc = next(existing_users, None)
+
+    if existing_user_doc:
+        user_data = {"id": existing_user_doc.id, **existing_user_doc.to_dict()}
         logger.info(f"Existing user detected with Aadhaar hash: {aadhaar_hash[:8]}...")
-        
+
         # Get the most recent KYC submission for this user
-        latest_submission = db.query(KYCSubmission).filter(
-            KYCSubmission.user_id == existing_user.id
-        ).order_by(KYCSubmission.created_at.desc()).first()
-        
-        return existing_user, latest_submission, False  # Existing user (login flow)
-    
-    # New user - create User and KYCSubmission
+        kyc_docs = (
+            db.collection(COLL_KYC_SUBMISSIONS)
+            .where("user_id", "==", existing_user_doc.id)
+            .order_by("created_at", direction="DESCENDING")
+            .limit(1)
+            .stream()
+        )
+        kyc_doc = next(kyc_docs, None)
+        kyc_data = {"id": kyc_doc.id, **kyc_doc.to_dict()} if kyc_doc else None
+        return user_data, kyc_data, False
+
+    # New user — encrypt and persist
     logger.info("Creating new user")
-    
-    # Encrypt sensitive data
     aadhaar_encrypted = encryption_service.encrypt_aadhaar(aadhaar)
     pan_encrypted = encryption_service.encrypt_pan(pan)
-    
-    # Save selfie if provided
+
     selfie_path = None
     if selfie:
         try:
@@ -90,86 +92,85 @@ def submit_kyc(
         except Exception as e:
             logger.error(f"Failed to save selfie: {str(e)}")
             raise ValueError(f"Invalid selfie data: {str(e)}")
-    
-    # Create User
-    user = User(aadhaar_hash=aadhaar_hash)
-    db.add(user)
-    db.flush()  # Get user.id without committing
-    
-    # Create KYC Submission
-    submission = KYCSubmission(
-        user_id=user.id,
-        aadhaar_encrypted=aadhaar_encrypted,
-        pan_encrypted=pan_encrypted,
-        aadhaar_hash=aadhaar_hash,
-        selfie_path=selfie_path,
-        status=KYCStatus.PENDING,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(user)
-    db.refresh(submission)
-    
-    logger.info(f"Created new user {user.id} with KYC submission {submission.id}")
-    
-    return user, submission, True  # New user (registration flow)
+
+    now = datetime.now(timezone.utc)
+
+    # Create User document
+    user_ref = db.collection(COLL_USERS).document()
+    user_data = {
+        "aadhaar_hash": aadhaar_hash,
+        "role": "user",
+        "created_at": now,
+    }
+    user_ref.set(user_data)
+    user_data = {"id": user_ref.id, **user_data}
+
+    # Create KYC Submission document
+    kyc_ref = db.collection(COLL_KYC_SUBMISSIONS).document()
+    kyc_data = {
+        "user_id": user_ref.id,
+        "aadhaar_encrypted": aadhaar_encrypted,
+        "pan_encrypted": pan_encrypted,
+        "aadhaar_hash": aadhaar_hash,
+        "selfie_path": selfie_path,
+        "status": KYCStatus.PENDING,
+        "created_at": now,
+        "updated_at": now,
+    }
+    kyc_ref.set(kyc_data)
+    kyc_data = {"id": kyc_ref.id, **kyc_data}
+
+    logger.info(f"Created new user {user_ref.id} with KYC submission {kyc_ref.id}")
+    return user_data, kyc_data, True
 
 
-def get_kyc_status(submission_id: int, db: Session) -> Optional[dict]:
+def get_kyc_status(submission_id: str) -> Optional[dict]:
     """
-    Get KYC submission status with masked data
-    
-    Args:
-        submission_id: KYC submission ID
-        db: Database session
-    
-    Returns:
-        Dictionary with submission details and masked PII
+    Get KYC submission status with masked data.
     """
-    submission = db.query(KYCSubmission).filter(
-        KYCSubmission.id == submission_id
-    ).first()
-    
-    if not submission:
+    db = get_db()
+    doc = db.collection(COLL_KYC_SUBMISSIONS).document(submission_id).get()
+    if not doc.exists:
         return None
-    
-    # Decrypt for masking
-    aadhaar = encryption_service.decrypt_aadhaar(submission.aadhaar_encrypted)
-    pan = encryption_service.decrypt_pan(submission.pan_encrypted)
-    
+
+    s = doc.to_dict()
+    aadhaar = encryption_service.decrypt_aadhaar(s["aadhaar_encrypted"])
+    pan = encryption_service.decrypt_pan(s["pan_encrypted"])
+
     return {
-        "id": submission.id,
+        "id": doc.id,
         "aadhaar_masked": encryption_service.mask_aadhaar(aadhaar),
         "pan_masked": encryption_service.mask_pan(pan),
-        "status": submission.status,
-        "has_selfie": submission.selfie_path is not None,
-        "created_at": submission.created_at,
+        "status": s["status"],
+        "has_selfie": s.get("selfie_path") is not None,
+        "created_at": s.get("created_at"),
     }
 
 
-def get_all_submissions(db: Session) -> list:
+def get_all_submissions() -> list:
     """
-    Get all KYC submissions (admin endpoint)
-    Returns masked data for all submissions
+    Get all KYC submissions (admin endpoint). Returns masked data.
     """
-    submissions = db.query(KYCSubmission).order_by(
-        KYCSubmission.created_at.desc()
-    ).all()
-    
+    db = get_db()
+    docs = (
+        db.collection(COLL_KYC_SUBMISSIONS)
+        .order_by("created_at", direction="DESCENDING")
+        .stream()
+    )
+
     result = []
-    for s in submissions:
-        # Decrypt for masking
-        aadhaar = encryption_service.decrypt_aadhaar(s.aadhaar_encrypted)
-        pan = encryption_service.decrypt_pan(s.pan_encrypted)
-        
+    for doc in docs:
+        s = doc.to_dict()
+        aadhaar = encryption_service.decrypt_aadhaar(s["aadhaar_encrypted"])
+        pan = encryption_service.decrypt_pan(s["pan_encrypted"])
+        created_at = s.get("created_at")
         result.append({
-            "id": s.id,
-            "user_id": s.user_id,
+            "id": doc.id,
+            "user_id": s["user_id"],
             "aadhaar_masked": encryption_service.mask_aadhaar(aadhaar),
             "pan_masked": encryption_service.mask_pan(pan),
-            "status": s.status,
-            "has_selfie": s.selfie_path is not None,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "status": s["status"],
+            "has_selfie": s.get("selfie_path") is not None,
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
         })
-    
     return result

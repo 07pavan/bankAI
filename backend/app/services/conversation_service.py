@@ -37,10 +37,14 @@ Backend responsibilities:
 import re
 from dataclasses import dataclass, field
 from typing import Optional
-from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
+from datetime import datetime, timezone
 
-from app.models import Form, FormField, SubmissionStatus, ConversationState, Submission
+from app.database import get_db
+from app.models import (
+    COLL_SUBMISSIONS, COLL_BANKS, COLL_FORMS,
+    SubmissionStatus, ConversationState,
+)
 from app.services import form_service, submission_service
 from app.schemas import (
     ConversationStartResponse,
@@ -158,10 +162,10 @@ REJECTION_WORDS = {"no", "wrong", "incorrect", "change", "edit", "modify", "back
 # ---------------------------------------------------------------------------
 
 def handle_conversation_turn(
-    submission_id: int,
-    user_id: int,
+    submission_id: str,
+    user_id: str,
     message: str,
-    db: Session,
+    db=None,  # kept for backward-compat but unused — Firestore uses get_db() internally
 ) -> ConversationTurnResponse:
     """
     Main entry point for POST /api/v1/conversation/next.
@@ -174,10 +178,10 @@ def handle_conversation_turn(
     The backend is the single source of truth for which state we are in.
 
     Args:
-        submission_id: Active submission ID
-        user_id: Authenticated user's ID
+        submission_id: Active submission Firestore document ID
+        user_id: Authenticated user's Firestore document ID
         message: Raw voice transcript from the frontend
-        db: Database session
+        db: Ignored — included for backward compatibility only
 
     Returns:
         ConversationTurnResponse with next_question (as agent_message),
@@ -185,7 +189,7 @@ def handle_conversation_turn(
     """
     # --- Try LLM agent first -----------------------------------------------
     if _is_llm_enabled():
-        llm_result = _try_llm_turn(submission_id, user_id, message, db)
+        llm_result = _try_llm_turn(submission_id, user_id, message)
         if llm_result is not None:
             return llm_result
         # LLM failed — fall through to keyword logic
@@ -195,14 +199,13 @@ def handle_conversation_turn(
         )
 
     # --- Keyword-based fallback --------------------------------------------
-    return _keyword_conversation_turn(submission_id, user_id, message, db)
+    return _keyword_conversation_turn(submission_id, user_id, message)
 
 
 def _try_llm_turn(
-    submission_id: int,
-    user_id: int,
+    submission_id: str,
+    user_id: str,
     message: str,
-    db: Session,
 ) -> Optional[ConversationTurnResponse]:
     """
     Attempt to process the turn via the LangGraph AI agent.
@@ -223,28 +226,29 @@ def _try_llm_turn(
         )
 
         # Load submission — backend is sole authority on state
-        sub = submission_service.get_submission(submission_id, user_id, db)
+        sub = submission_service.get_submission(submission_id, user_id)
 
         logger.info(
-            f"LLM turn attempt: submission={sub.id} state={sub.conversation_state} "
-            f"field_idx={sub.current_field_index}"
+            f"LLM turn attempt: submission={sub['id']} "
+            f"state={sub.get('conversation_state')} "
+            f"field_idx={sub.get('current_field_index')}"
         )
 
         # Invoke LangGraph agent
         result = invoke_agent(
             user_id=user_id,
             user_message=message,
-            conversation_state=sub.conversation_state,
-            submission_id=sub.id,
+            conversation_state=sub.get("conversation_state"),
+            submission_id=sub["id"],
             current_field=None,  # Agent will call get_next_field
-            form_id=sub.form_id,
-            thread_id=f"submission_{sub.id}",
+            form_id=sub.get("form_id"),
+            thread_id=f"submission_{sub['id']}",
         )
 
         # Check for agent-level errors
         if result.get("error"):
             logger.warning(
-                f"LLM agent returned error for submission={sub.id}: "
+                f"LLM agent returned error for submission={sub['id']}: "
                 f"{result['error']} — falling back to keywords"
             )
             return None
@@ -253,35 +257,34 @@ def _try_llm_turn(
         agent_message = get_last_agent_message(result)
         if not agent_message:
             logger.warning(
-                f"LLM agent returned empty message for submission={sub.id} — "
+                f"LLM agent returned empty message for submission={sub['id']} — "
                 f"falling back to keywords"
             )
             return None
 
-        # Sync conversation_state back to DB
-        new_state = result.get("conversation_state", sub.conversation_state)
-        if sub.conversation_state != new_state:
-            sub.conversation_state = new_state
-            db.commit()
-            db.refresh(sub)
-            logger.info(
-                f"LLM synced state: submission={sub.id} → {new_state}"
+        # Sync conversation_state back to Firestore
+        new_state = result.get("conversation_state", sub.get("conversation_state"))
+        if sub.get("conversation_state") != new_state:
+            db = get_db()
+            db.collection(COLL_SUBMISSIONS).document(submission_id).update(
+                {"conversation_state": new_state}
             )
+            logger.info(f"LLM synced state: submission={sub['id']} → {new_state}")
 
-        is_complete = new_state == ConversationState.COMPLETE
+        is_complete = new_state == ConversationState.COMPLETE.value
         field_key = result.get("current_field")
 
         logger.info(
-            f"LLM turn success: submission={sub.id} state={new_state} "
+            f"LLM turn success: submission={sub['id']} state={new_state} "
             f"complete={is_complete}"
         )
 
         return ConversationTurnResponse(
-            submission_id=sub.id,
+            submission_id=sub["id"],
             field_key=field_key,
             agent_message=agent_message,
             is_complete=is_complete,
-            progress=_build_progress(sub, db),
+            progress=_build_progress(sub),
         )
 
     except Exception as exc:
@@ -293,10 +296,9 @@ def _try_llm_turn(
 
 
 def _keyword_conversation_turn(
-    submission_id: int,
-    user_id: int,
+    submission_id: str,
+    user_id: str,
     message: str,
-    db: Session,
 ) -> ConversationTurnResponse:
     """
     Original keyword-based conversation turn handler.
@@ -305,21 +307,21 @@ def _keyword_conversation_turn(
     Dispatches to the correct state handler based on
     submission.conversation_state.
     """
-    sub = submission_service.get_submission(submission_id, user_id, db)
-    state = sub.conversation_state
+    sub = submission_service.get_submission(submission_id, user_id)
+    state = sub.get("conversation_state")
 
     logger.info(
         f"Keyword turn: submission={submission_id} state={state} "
-        f"field_index={sub.current_field_index}"
+        f"field_index={sub.get('current_field_index')}"
     )
 
-    if state == ConversationState.FILLING_FORM:
-        return _handle_filling_form(sub, message, user_id, db)
-    elif state == ConversationState.REVIEW:
-        return _handle_review(sub, message, user_id, db)
-    elif state == ConversationState.SIGNATURE:
-        return _handle_signature(sub, message, user_id, db)
-    elif state == ConversationState.COMPLETE:
+    if state == ConversationState.FILLING_FORM.value:
+        return _handle_filling_form(sub, message, user_id)
+    elif state == ConversationState.REVIEW.value:
+        return _handle_review(sub, message, user_id)
+    elif state == ConversationState.SIGNATURE.value:
+        return _handle_signature(sub, message, user_id)
+    elif state == ConversationState.COMPLETE.value:
         return ConversationTurnResponse(
             submission_id=submission_id,
             agent_message="This application has already been submitted. Thank you!",
@@ -328,26 +330,26 @@ def _keyword_conversation_turn(
     else:
         # Fallback — treat unknown state as FILLING_FORM
         logger.warning(f"Unknown conversation state '{state}' for submission {submission_id}, defaulting to FILLING_FORM")
-        return _handle_filling_form(sub, message, user_id, db)
+        return _handle_filling_form(sub, message, user_id)
 
 
-# Legacy alias used by the old conversation endpoint — keeps backward compat
+# Legacy alias — keeps backward compatibility
 def handle_user_response(
-    submission_id: int,
-    user_id: int,
+    submission_id: str,
+    user_id: str,
     text_input: str,
-    db: Session,
+    db=None,
 ) -> ConversationTurnResponse:
-    return handle_conversation_turn(submission_id, user_id, text_input, db)
+    return handle_conversation_turn(submission_id, user_id, text_input)
 
 
-def start_conversation(user_id: int, bank_id: int, db: Session) -> ConversationStartResponse:
+def start_conversation(user_id: str, bank_id: str, db=None) -> ConversationStartResponse:
     """
     Begin a conversation session — returns available forms for the bank.
     Used by the WELCOME state before a submission exists.
     """
     try:
-        forms = form_service.get_active_forms(bank_id, db)
+        forms = form_service.get_active_forms(bank_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -366,27 +368,29 @@ def start_conversation(user_id: int, bank_id: int, db: Session) -> ConversationS
     return ConversationStartResponse(message=message, available_forms=form_items)
 
 
-def detect_application_intent(text_input: str, bank_id: int, db: Session) -> Optional[Form]:
+def detect_application_intent(text_input: str, bank_id: str, db=None) -> Optional[dict]:
     """
     Map a free-text utterance to a Form using keyword matching.
     Returns None if no intent is detected.
     Extend INTENT_KEYWORDS to support new form types without code changes.
     """
     normalised = text_input.lower().strip()
+    fs_db = get_db()
 
     for form_code, keywords in INTENT_KEYWORDS.items():
         for kw in keywords:
             if kw in normalised:
-                form = (
-                    db.query(Form)
-                    .filter(
-                        Form.bank_id == bank_id,
-                        Form.code == form_code,
-                        Form.is_active == True,
-                    )
-                    .first()
+                # Query Firestore for matching active form in this bank
+                results = (
+                    fs_db.collection(COLL_FORMS)
+                    .where("bank_id", "==", bank_id)
+                    .where("code", "==", form_code)
+                    .where("is_active", "==", True)
+                    .limit(1)
+                    .stream()
                 )
-                if form:
+                for doc in results:
+                    form = {"id": doc.id, **doc.to_dict()}
                     logger.info(f"Intent detected: form_code='{form_code}' from input (redacted)")
                     return form
 
@@ -394,7 +398,7 @@ def detect_application_intent(text_input: str, bank_id: int, db: Session) -> Opt
     return None
 
 
-def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnResponse":
+def handle_chat_turn(user_id: str, message: str, db=None) -> "ChatTurnResponse":
     """
     Hybrid pre-submission chat handler — does NOT touch any Submission record.
 
@@ -408,7 +412,7 @@ def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnRespon
     Args:
         user_id: Authenticated user ID (for logging only)
         message:  Raw text/voice transcript from the frontend
-        db:       Database session
+        db:       Ignored — Firestore uses get_db() internally
 
     Returns:
         ChatTurnResponse with intent tag and reply
@@ -417,19 +421,18 @@ def handle_chat_turn(user_id: int, message: str, db: Session) -> "ChatTurnRespon
 
     # --- Try LLM agent first -----------------------------------------------
     if _is_llm_enabled():
-        llm_chat = _try_llm_chat(user_id, message, db)
+        llm_chat = _try_llm_chat(user_id, message)
         if llm_chat is not None:
             return llm_chat
         logger.info(f"LLM chat fallback for user={user_id} — using keywords")
 
     # --- Keyword-based fallback --------------------------------------------
-    return _keyword_chat_turn(user_id, message, db)
+    return _keyword_chat_turn(user_id, message)
 
 
 def _try_llm_chat(
-    user_id: int,
+    user_id: str,
     message: str,
-    db: Session,
 ) -> Optional["ChatTurnResponse"]:
     """
     Attempt to handle the chat turn via the LangGraph AI agent.
@@ -468,7 +471,7 @@ def _try_llm_chat(
         # If help intent, also fetch forms for the response
         available_forms = []
         if intent in ("help", "form_selection"):
-            forms = _get_all_active_forms(db)
+            forms = _get_all_active_forms()
             available_forms = [FormListItem.model_validate(f) for f in forms]
 
         logger.info(f"LLM chat success: user={user_id} intent={intent}")
@@ -510,7 +513,7 @@ def _classify_intent_from_message(message: str) -> str:
 
 
 def _keyword_chat_turn(
-    user_id: int, message: str, db: Session
+    user_id: str, message: str
 ) -> "ChatTurnResponse":
     """
     Original keyword-based chat handler — deterministic fallback.
@@ -532,9 +535,9 @@ def _keyword_chat_turn(
 
     # ── 2. Help / service listing ──────────────────────────────────────────────
     if any(trigger in normalised for trigger in HELP_TRIGGERS):
-        forms = _get_all_active_forms(db)
+        forms = _get_all_active_forms()
         if forms:
-            form_list = "\n".join(f"• {f.name}" for f in forms)
+            form_list = "\n".join(f"• {f['name']}" for f in forms)
             reply = _HELP_REPLY_TEMPLATE.format(form_list=form_list)
         else:
             reply = "No banking forms are available right now. Please try again later."
@@ -546,12 +549,11 @@ def _keyword_chat_turn(
         )
 
     # ── 3. Form-selection intent ───────────────────────────────────────────────
-    forms = _get_all_active_forms(db)
-    matched_form = _detect_form_intent_from_all_banks(normalised, db)
+    matched_form = _detect_form_intent_from_all_banks(normalised)
     if matched_form:
-        all_forms = _get_active_forms_for_bank(matched_form.bank_id, db)
+        all_forms = form_service.get_active_forms(matched_form["bank_id"])
         reply = (
-            f"Great choice! I can help you with the **{matched_form.name}** application. "
+            f"Great choice! I can help you with the **{matched_form['name']}** application. "
             "Click 'Start' to begin — I'll guide you through each field with voice or text."
         )
         logger.info(f"Chat intent=form_selection user={user_id}")
@@ -567,56 +569,54 @@ def _keyword_chat_turn(
 
 
 # ---------------------------------------------------------------------------
-# Chat-mode DB helpers (read-only)
+# Chat-mode DB helpers (read-only, Firestore)
 # ---------------------------------------------------------------------------
 
-def _get_all_active_forms(db: Session) -> list:
+def _get_all_active_forms() -> list:
     """Return all active forms across all active banks."""
-    from app.models import Bank as BankModel
-    return (
-        db.query(Form)
-        .join(BankModel, Form.bank_id == BankModel.id)
-        .filter(Form.is_active == True, BankModel.is_active == True)
-        .order_by(Form.id)
-        .all()
-    )
+    fs_db = get_db()
+    # Fetch active banks first
+    active_bank_ids = set()
+    for doc in fs_db.collection(COLL_BANKS).where("is_active", "==", True).stream():
+        active_bank_ids.add(doc.id)
+
+    # Fetch active forms belonging to active banks
+    forms = []
+    for doc in fs_db.collection(COLL_FORMS).where("is_active", "==", True).stream():
+        f = {"id": doc.id, **doc.to_dict()}
+        if f.get("bank_id") in active_bank_ids:
+            forms.append(f)
+
+    # Sort by id for stable ordering
+    forms.sort(key=lambda x: x.get("id", ""))
+    return forms
 
 
-def _get_active_forms_for_bank(bank_id: int, db: Session) -> list:
-    """Return all active forms for a specific bank."""
-    return (
-        db.query(Form)
-        .filter(Form.bank_id == bank_id, Form.is_active == True)
-        .order_by(Form.id)
-        .all()
-    )
-
-
-def _detect_form_intent_from_all_banks(normalised: str, db: Session) -> Optional[Form]:
+def _detect_form_intent_from_all_banks(normalised: str) -> Optional[dict]:
     """
     Run INTENT_KEYWORDS matching across all active banks.
-    Returns the first matching active Form, or None.
+    Returns the first matching active Form dict, or None.
     """
-    from app.models import Bank as BankModel
-    active_banks = db.query(BankModel).filter(BankModel.is_active == True).all()
-    for bank in active_banks:
+    fs_db = get_db()
+    active_bank_ids = [
+        doc.id for doc in fs_db.collection(COLL_BANKS).where("is_active", "==", True).stream()
+    ]
+
+    for bank_id in active_bank_ids:
         for form_code, keywords in INTENT_KEYWORDS.items():
             for kw in keywords:
                 if kw in normalised:
-                    form = (
-                        db.query(Form)
-                        .filter(
-                            Form.bank_id == bank.id,
-                            Form.code == form_code,
-                            Form.is_active == True,
-                        )
-                        .first()
+                    results = (
+                        fs_db.collection(COLL_FORMS)
+                        .where("bank_id", "==", bank_id)
+                        .where("code", "==", form_code)
+                        .where("is_active", "==", True)
+                        .limit(1)
+                        .stream()
                     )
-                    if form:
-                        return form
+                    for doc in results:
+                        return {"id": doc.id, **doc.to_dict()}
     return None
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -624,147 +624,153 @@ def _detect_form_intent_from_all_banks(normalised: str, db: Session) -> Optional
 # ---------------------------------------------------------------------------
 
 def _handle_filling_form(
-    sub: Submission,
+    sub: dict,
     message: str,
-    user_id: int,
-    db: Session,
+    user_id: str,
 ) -> ConversationTurnResponse:
     """
     FILLING_FORM state: validate + save the answer, advance to next field.
     When all fields are answered, transition to REVIEW state.
     """
-    current_field = submission_service.get_current_field(sub.id, db)
+    submission_id = sub["id"]
+    current_field = submission_service.get_current_field(submission_id)
 
     if current_field is None:
         # All fields answered — move to REVIEW
-        return _transition_to_review(sub, db)
+        return _transition_to_review(sub)
 
     # Parse and validate the answer (backend enforces all rules)
     parsed_value = _parse_and_validate(message, current_field)
 
     # Persist the answer (field_key logged, value never logged)
     submission_service.save_field_value(
-        submission_id=sub.id,
-        field_key=current_field.field_key,
+        submission_id=submission_id,
+        field_key=current_field["field_key"],
         value=parsed_value,
-        db=db,
     )
     logger.info(
-        f"Field saved: submission={sub.id} field_key='{current_field.field_key}' "
+        f"Field saved: submission={submission_id} field_key='{current_field['field_key']}' "
         f"(value redacted for security)"
     )
 
     # Advance the cursor
-    updated_sub = submission_service.move_to_next_field(sub.id, db)
+    updated_sub = submission_service.move_to_next_field(submission_id)
 
     # Check if we just answered the last field
-    next_field = submission_service.get_current_field(sub.id, db)
+    next_field = submission_service.get_current_field(submission_id)
     if next_field is None:
-        return _transition_to_review(updated_sub, db)
+        return _transition_to_review(updated_sub)
 
     agent_message = _build_field_prompt(
-        confirmed_label=current_field.label,
+        confirmed_label=current_field["label"],
         next_field=next_field,
     )
 
     return ConversationTurnResponse(
-        submission_id=sub.id,
-        field_key=current_field.field_key,
+        submission_id=submission_id,
+        field_key=current_field["field_key"],
         agent_message=agent_message,
         is_complete=False,
-        progress=_build_progress(updated_sub, db),
+        progress=_build_progress(updated_sub),
     )
 
 
 def _handle_review(
-    sub: Submission,
+    sub: dict,
     message: str,
-    user_id: int,
-    db: Session,
+    user_id: str,
 ) -> ConversationTurnResponse:
     """
     REVIEW state: read back all answers and wait for user confirmation.
-    On confirmation → COMPLETE. On rejection → back to FILLING_FORM at index 0.
+    On confirmation → SIGNATURE. On rejection → back to FILLING_FORM at index 0.
     """
+    submission_id = sub["id"]
     normalised = message.lower().strip()
     words = set(normalised.split())
 
     if words & CONFIRMATION_WORDS:
         # User confirmed — transition to SIGNATURE for signing before completion
-        return _transition_to_signature(sub, db)
+        return _transition_to_signature(sub)
 
     if words & REJECTION_WORDS:
         # User wants to change something — restart from field 0
-        sub.conversation_state = ConversationState.FILLING_FORM
-        sub.current_field_index = 0
-        db.commit()
-        db.refresh(sub)
-        logger.info(f"Submission {sub.id} returned to FILLING_FORM from REVIEW (user requested changes)")
+        db = get_db()
+        db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+            "conversation_state": ConversationState.FILLING_FORM.value,
+            "current_field_index": 0,
+        })
+        updated_sub = submission_service.get_submission(submission_id, user_id)
+        logger.info(f"Submission {submission_id} returned to FILLING_FORM from REVIEW (user requested changes)")
 
-        first_field = submission_service.get_current_field(sub.id, db)
+        first_field = submission_service.get_current_field(submission_id)
         prompt = f"No problem! Let's go through the form again. {_field_question(first_field)}" if first_field else "Let's start over."
         return ConversationTurnResponse(
-            submission_id=sub.id,
+            submission_id=submission_id,
             agent_message=prompt,
             is_complete=False,
-            progress=_build_progress(sub, db),
+            progress=_build_progress(updated_sub),
         )
 
     # Ambiguous — re-read the summary and ask again
-    summary = _build_review_summary(sub, db)
+    summary = _build_review_summary(sub)
     return ConversationTurnResponse(
-        submission_id=sub.id,
+        submission_id=submission_id,
         agent_message=(
             f"{summary}\n\nPlease say 'confirm' to submit or 'change' to edit your answers."
         ),
         is_complete=False,
-        progress=_build_progress(sub, db),
+        progress=_build_progress(sub),
     )
 
 
-def _transition_to_review(sub: Submission, db: Session) -> ConversationTurnResponse:
+def _transition_to_review(sub: dict) -> ConversationTurnResponse:
     """Move submission to REVIEW state and return the review summary."""
-    sub.conversation_state = ConversationState.REVIEW
-    db.commit()
-    db.refresh(sub)
-    logger.info(f"Submission {sub.id} transitioned to REVIEW state")
+    submission_id = sub["id"]
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "conversation_state": ConversationState.REVIEW.value,
+    })
+    updated_sub = {**sub, "conversation_state": ConversationState.REVIEW.value}
+    logger.info(f"Submission {submission_id} transitioned to REVIEW state")
 
-    summary = _build_review_summary(sub, db)
+    summary = _build_review_summary(updated_sub)
     return ConversationTurnResponse(
-        submission_id=sub.id,
+        submission_id=submission_id,
         agent_message=(
             f"Great! Here's a summary of your application:\n\n{summary}\n\n"
             "Say 'confirm' to submit or 'change' to edit."
         ),
         is_complete=False,
-        progress=_build_progress(sub, db),
+        progress=_build_progress(updated_sub),
     )
 
 
-def _transition_to_signature(sub: Submission, db: Session) -> ConversationTurnResponse:
+def _transition_to_signature(sub: dict) -> ConversationTurnResponse:
     """Move submission to SIGNATURE state — awaiting user's signature."""
-    sub.conversation_state = ConversationState.SIGNATURE
-    db.commit()
-    db.refresh(sub)
-    logger.info(f"Submission {sub.id} transitioned to SIGNATURE state")
+    submission_id = sub["id"]
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "conversation_state": ConversationState.SIGNATURE.value,
+    })
+    updated_sub = {**sub, "conversation_state": ConversationState.SIGNATURE.value}
+    logger.info(f"Submission {submission_id} transitioned to SIGNATURE state")
 
     return ConversationTurnResponse(
-        submission_id=sub.id,
+        submission_id=submission_id,
         agent_message=(
             "Almost done! Before submitting, please provide your signature. "
             "Use the signature pad that has appeared to draw your signature, "
             "then tap 'Save Signature'."
         ),
         is_complete=False,
-        progress=_build_progress(sub, db),
+        progress=_build_progress(updated_sub),
     )
 
 
 def _handle_signature(
-    sub: Submission,
+    sub: dict,
     message: str,
-    user_id: int,
-    db: Session,
+    user_id: str,
 ) -> ConversationTurnResponse:
     """
     SIGNATURE state handler.
@@ -774,43 +780,50 @@ def _handle_signature(
       - If signature already captured (signed_at set) → complete the submission.
       - Otherwise → remind user to sign via the signature pad.
     """
-    # Refresh from DB to check if signature was uploaded via REST endpoint
-    db.refresh(sub)
+    submission_id = sub["id"]
 
-    if sub.signed_at and sub.signature_path:
+    # Re-fetch from Firestore to check if signature was uploaded via REST endpoint
+    refreshed = submission_service.get_submission(submission_id, user_id)
+
+    if refreshed.get("signed_at") and refreshed.get("signature_path"):
         # Signature captured — proceed to complete
-        return _transition_to_complete(sub, user_id, db)
+        return _transition_to_complete(refreshed, user_id)
 
     # Signature not yet captured — prompt again
     return ConversationTurnResponse(
-        submission_id=sub.id,
+        submission_id=submission_id,
         agent_message=(
             "I'm waiting for your signature. Please use the signature pad "
             "on screen to draw your signature, then tap 'Save Signature'. "
             "This is required before we can submit your application."
         ),
         is_complete=False,
-        progress=_build_progress(sub, db),
+        progress=_build_progress(refreshed),
     )
 
 
-def _transition_to_complete(sub: Submission, user_id: int, db: Session) -> ConversationTurnResponse:
+def _transition_to_complete(sub: dict, user_id: str) -> ConversationTurnResponse:
     """Validate required fields and mark submission as COMPLETE."""
-    completed = submission_service.complete_submission(sub.id, user_id, db)
-    completed.conversation_state = ConversationState.COMPLETE
-    db.commit()
-    db.refresh(completed)
-    logger.info(f"Submission {sub.id} completed by user={user_id} — state=COMPLETE")
+    submission_id = sub["id"]
+    completed = submission_service.complete_submission(submission_id, user_id)
+
+    # Set conversation state to COMPLETE
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "conversation_state": ConversationState.COMPLETE.value,
+    })
+    completed_with_state = {**completed, "conversation_state": ConversationState.COMPLETE.value}
+    logger.info(f"Submission {submission_id} completed by user={user_id} — state=COMPLETE")
 
     return ConversationTurnResponse(
-        submission_id=sub.id,
+        submission_id=submission_id,
         agent_message=(
             "Your application has been submitted successfully! 🎉 "
             "Your PDF is ready for download. "
             "Our team will review it and contact you shortly. Thank you!"
         ),
         is_complete=True,
-        progress=_build_progress(completed, db),
+        progress=_build_progress(completed_with_state),
     )
 
 
@@ -818,55 +831,72 @@ def _transition_to_complete(sub: Submission, user_id: int, db: Session) -> Conve
 # Prompt builders (AI generates natural language from field metadata)
 # ---------------------------------------------------------------------------
 
-def _field_question(field: Optional[FormField]) -> str:
-    """Generate a question prompt for a field."""
+def _field_question(field: Optional[dict]) -> str:
+    """Generate a question prompt for a field dict."""
     if not field:
         return "All done!"
 
-    if field.field_type in ("select", "radio") and field.options:
-        choices = ", ".join(opt["label"] for opt in field.options)
-        return f"{field.label}? Options: {choices}."
+    field_type = field.get("field_type", "text")
+    label = field.get("label", "")
+    options = field.get("options") or []
+    validation_rule = field.get("validation_rule") or {}
 
-    if field.field_type == "date":
-        return f"{field.label}? (Format: YYYY-MM-DD)"
+    if field_type in ("select", "radio") and options:
+        choices = ", ".join(opt["label"] for opt in options)
+        return f"{label}? Options: {choices}."
 
-    if field.field_type == "number":
-        rule = field.validation_rule or {}
+    if field_type == "date":
+        return f"{label}? (Format: YYYY-MM-DD)"
+
+    if field_type == "number":
         hint = ""
-        if "min" in rule and "max" in rule:
-            hint = f" (between {rule['min']} and {rule['max']})"
-        elif "min" in rule:
-            hint = f" (minimum: {rule['min']})"
-        return f"{field.label}?{hint}"
+        if "min" in validation_rule and "max" in validation_rule:
+            hint = f" (between {validation_rule['min']} and {validation_rule['max']})"
+        elif "min" in validation_rule:
+            hint = f" (minimum: {validation_rule['min']})"
+        return f"{label}?{hint}"
 
-    return f"{field.label}?"
+    return f"{label}?"
 
 
-def _build_field_prompt(confirmed_label: str, next_field: FormField) -> str:
+def _build_field_prompt(confirmed_label: str, next_field: dict) -> str:
     """Confirmation of saved field + question for next field."""
     return f"Got it. Next: {_field_question(next_field)}"
 
 
-def _build_review_summary(sub: Submission, db: Session) -> str:
+def _build_review_summary(sub: dict) -> str:
     """
     Build a human-readable review of all answered fields.
     Field values ARE read back to the user here (this is intentional UX),
     but they are never written to logs.
     """
-    from app.services.form_service import get_ordered_active_fields
-    fields = get_ordered_active_fields(sub.form_id, db)
-    answered = {d.field_key: d.value for d in sub.data}
+    form_id = sub.get("form_id")
+    submission_id = sub.get("id")
+
+    fields = form_service.get_ordered_active_fields(form_id)
+
+    # Fetch submission data answers
+    fs_db = get_db()
+    from app.models import COLL_SUBMISSION_DATA
+    data_docs = (
+        fs_db.collection(COLL_SUBMISSION_DATA)
+        .where("submission_id", "==", submission_id)
+        .stream()
+    )
+    answered = {d.to_dict().get("field_key"): d.to_dict().get("value", "") for d in data_docs}
 
     lines = []
-    for field in fields:
-        value = answered.get(field.field_key, "(not answered)")
+    for f in fields:
+        field_key = f.get("field_key", "")
+        value = answered.get(field_key, "(not answered)")
         # For select/radio, show the label not the value key
-        if field.options and value != "(not answered)":
-            for opt in field.options:
-                if opt["value"] == value:
-                    value = opt["label"]
+        options = f.get("options") or []
+        if options and value != "(not answered)":
+            for opt in options:
+                if opt.get("value") == value:
+                    value = opt.get("label", value)
                     break
-        lines.append(f"• {field.label}: {value}")
+        lines.append(f"• {f.get('label', field_key)}: {value}")
 
     return "\n".join(lines)
 
@@ -875,7 +905,7 @@ def _build_review_summary(sub: Submission, db: Session) -> str:
 # Validation (backend enforces all rules — AI cannot bypass)
 # ---------------------------------------------------------------------------
 
-def _parse_and_validate(text_input: str, field: FormField) -> str:
+def _parse_and_validate(text_input: str, field: dict) -> str:
     """
     Validate raw text against the field's type and validation_rule.
     Returns the cleaned, normalised value string.
@@ -883,40 +913,41 @@ def _parse_and_validate(text_input: str, field: FormField) -> str:
     Field values are never logged here.
     """
     value = text_input.strip()
+    field_type = field.get("field_type", "text")
+    label = field.get("label", "")
+    rule = field.get("validation_rule") or {}
 
     if not value:
-        if field.required:
+        if field.get("required"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' is required and cannot be empty",
+                detail=f"'{label}' is required and cannot be empty",
             )
         return value
 
-    rule = field.validation_rule or {}
-
     # ── Number validation ─────────────────────────────────────────────────────
-    if field.field_type == "number":
+    if field_type == "number":
         try:
             num = float(value)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' must be a number",
+                detail=f"'{label}' must be a number",
             )
         if "min" in rule and num < rule["min"]:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' must be at least {rule['min']}",
+                detail=f"'{label}' must be at least {rule['min']}",
             )
         if "max" in rule and num > rule["max"]:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' must be at most {rule['max']}",
+                detail=f"'{label}' must be at most {rule['max']}",
             )
 
     # ── Select / Radio validation ─────────────────────────────────────────────
-    elif field.field_type in ("select", "radio"):
-        options = field.options or []
+    elif field_type in ("select", "radio"):
+        options = field.get("options") or []
         valid_values = {opt["value"] for opt in options}
         valid_labels = {opt["label"].lower(): opt["value"] for opt in options}
 
@@ -928,7 +959,7 @@ def _parse_and_validate(text_input: str, field: FormField) -> str:
             choices = ", ".join(opt["label"] for opt in options)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' must be one of: {choices}",
+                detail=f"'{label}' must be one of: {choices}",
             )
 
     # ── Pattern validation ────────────────────────────────────────────────────
@@ -936,19 +967,19 @@ def _parse_and_validate(text_input: str, field: FormField) -> str:
         if not re.fullmatch(rule["pattern"], value):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"'{field.label}' format is invalid",
+                detail=f"'{label}' format is invalid",
             )
 
     # ── Length validation ─────────────────────────────────────────────────────
     if "min_length" in rule and len(value) < rule["min_length"]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"'{field.label}' must be at least {rule['min_length']} characters",
+            detail=f"'{label}' must be at least {rule['min_length']} characters",
         )
     if "max_length" in rule and len(value) > rule["max_length"]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"'{field.label}' must be at most {rule['max_length']} characters",
+            detail=f"'{label}' must be at most {rule['max_length']} characters",
         )
 
     return value
@@ -958,20 +989,21 @@ def _parse_and_validate(text_input: str, field: FormField) -> str:
 # Progress snapshot
 # ---------------------------------------------------------------------------
 
-def _build_progress(sub: Submission, db: Session) -> SubmissionProgress:
-    from app.services.form_service import get_ordered_active_fields
-    fields = get_ordered_active_fields(sub.form_id, db)
+def _build_progress(sub: dict) -> SubmissionProgress:
+    form_id = sub.get("form_id", "")
+    submission_id = sub.get("id", "")
+    fields = form_service.get_ordered_active_fields(form_id)
     total = len(fields)
-    idx = sub.current_field_index
+    idx = sub.get("current_field_index", 0)
 
     current_field_out = None
     if idx < total:
         current_field_out = FormFieldOut.model_validate(fields[idx])
 
     return SubmissionProgress(
-        submission_id=sub.id,
+        submission_id=submission_id,
         current_field_index=idx,
         total_fields=total,
-        status=sub.status,
+        status=sub.get("status", SubmissionStatus.DRAFT.value),
         current_field=current_field_out,
     )

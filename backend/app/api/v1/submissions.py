@@ -13,10 +13,9 @@ Contracts:
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from app.database import get_db
+
 from app.core.security import get_current_user_id
 from app.core.logging import get_logger
 from app.schemas import (
@@ -34,7 +33,7 @@ router = APIRouter()
 
 class CompleteSubmissionRequest(BaseModel):
     """Body for POST /submissions/complete."""
-    submission_id: int
+    submission_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -44,16 +43,15 @@ class CompleteSubmissionRequest(BaseModel):
 @router.post("/start", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED)
 def start_submission(
     payload: SubmissionCreate,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Start a new draft form submission.
 
-    Body: { "form_id": <int> }
+    Body: { "form_id": <str> }
     Returns the created Submission with status="draft" and current_field_index=0.
     """
-    return submission_service.create_submission(user_id, payload.form_id, db)
+    return submission_service.create_submission(user_id, payload.form_id)
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +60,10 @@ def start_submission(
 
 @router.get("", response_model=list[SubmissionOut])
 def list_submissions(
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """List all submissions for the authenticated user, newest first."""
-    return submission_service.get_user_submissions(user_id, db)
+    return submission_service.get_user_submissions(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +72,11 @@ def list_submissions(
 
 @router.get("/{submission_id}", response_model=SubmissionOut)
 def get_submission(
-    submission_id: int,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    submission_id: str,
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get a submission with all answered fields. Enforces ownership."""
-    return submission_service.get_submission(submission_id, user_id, db)
+    return submission_service.get_submission(submission_id, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -90,17 +86,16 @@ def get_submission(
 @router.post("/complete", response_model=SubmissionOut)
 def complete_submission(
     payload: CompleteSubmissionRequest,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Mark a submission as completed.
 
-    Body: { "submission_id": <int> }
+    Body: { "submission_id": <str> }
     Returns 422 if any required fields are unanswered.
     Returns 409 if already completed.
     """
-    return submission_service.complete_submission(payload.submission_id, user_id, db)
+    return submission_service.complete_submission(payload.submission_id, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -113,10 +108,9 @@ def complete_submission(
     summary="Upload applicant signature",
 )
 def upload_signature(
-    submission_id: int,
+    submission_id: str,
     payload: SignatureUploadRequest,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Upload a base64-encoded signature image for a submission.
@@ -133,7 +127,6 @@ def upload_signature(
         submission_id=submission_id,
         user_id=user_id,
         base64_image=payload.image,
-        db=db,
     )
     logger.info(f"Signature uploaded: submission={submission_id} user={user_id}")
     return SignatureUploadResponse(
@@ -154,9 +147,8 @@ def upload_signature(
     },
 )
 def download_pdf(
-    submission_id: int,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    submission_id: str,
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Generate and download a PDF for a completed submission.
@@ -170,7 +162,6 @@ def download_pdf(
     filepath = pdf_service.generate_pdf(
         submission_id=submission_id,
         user_id=user_id,
-        db=db,
     )
     logger.info(f"PDF downloaded: submission={submission_id} user={user_id}")
     return FileResponse(

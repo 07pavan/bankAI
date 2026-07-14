@@ -1,5 +1,5 @@
 """
-Forms API — read-only endpoints for form discovery.
+Forms API — read-only endpoints for form discovery (Firestore edition)
 All routes are JWT-protected.
 
 Contracts:
@@ -8,76 +8,79 @@ Contracts:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.database import get_db
 from app.core.security import get_current_user_id
 from app.schemas import FormListItem, FormOut
 from app.services import form_service
-from app.models import Bank
 
 router = APIRouter()
 
 
-def _resolve_bank_id(user_id: int, db: Session) -> int:
+def _resolve_bank_id(user_id: str) -> str:
     """
-    Resolve the bank_id for the authenticated user.
+    Resolve the bank_id for the authenticated user in Firestore.
 
     Priority:
-      1. UserPreference.bank_id (if the table exists and has a row)
-      2. First active bank (fallback for single-bank deployments)
+      1. User's designated bank_id from their user document.
+      2. First active bank (fallback for single-bank deployments).
 
     Raises HTTPException 404 if no active bank is found.
     """
-    # Try UserPreference first (table may not exist yet in early migrations)
-    try:
-        from app.models import UserPreference  # noqa: F401 — optional model
-        pref = db.query(UserPreference).filter(UserPreference.user_id == user_id).first()
-        if pref and pref.bank_id:
-            return pref.bank_id
-    except (ImportError, AttributeError):
-        pass  # UserPreference model/table not yet migrated — fall through
+    db = get_db()
+    
+    # Try user document preference
+    user_doc = db.collection("users").document(user_id).get()
+    if user_doc.exists:
+        user_data = user_doc.to_dict()
+        if user_data.get("bank_id"):
+            return user_data["bank_id"]
 
     # Fallback: first active bank (works for single-bank deployments)
-    bank = db.query(Bank).filter(Bank.is_active == True).order_by(Bank.id).first()
-    if not bank:
+    banks = (
+        db.collection("banks")
+        .where("is_active", "==", True)
+        .order_by("name")
+        .limit(1)
+        .stream()
+    )
+    bank_doc = next(banks, None)
+    if not bank_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active bank found. Please contact support.",
         )
-    return bank.id
+    return bank_doc.id
 
 
 @router.get("", response_model=list[FormListItem])
 def list_forms(
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Return all active forms for the authenticated user's bank.
 
-    The bank is resolved from the user's preference; falls back to the
+    The bank is resolved from the user's document; falls back to the
     first active bank for single-bank deployments.
     """
-    bank_id = _resolve_bank_id(user_id, db)
+    bank_id = _resolve_bank_id(user_id)
     try:
-        return form_service.get_active_forms(bank_id, db)
+        return form_service.get_active_forms(bank_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.get("/{form_id}", response_model=FormOut)
 def get_form(
-    form_id: int,
-    _user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    form_id: str,
+    _user_id: str = Depends(get_current_user_id),
 ):
     """Return full form definition with sections and fields."""
-    form = form_service.get_form_structure(form_id, db)
+    form = form_service.get_form_structure(form_id)
     if not form:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Form {form_id} not found",
         )
     return form
-

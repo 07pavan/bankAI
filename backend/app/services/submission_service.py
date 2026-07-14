@@ -1,5 +1,6 @@
 """
-SubmissionService — manages the lifecycle of a form submission.
+SubmissionService — Firestore edition.
+Manages the lifecycle of a form submission.
 
 Responsibilities:
   - create_submission        → start a new draft
@@ -9,15 +10,19 @@ Responsibilities:
   - complete_submission      → validate and mark done
   - get_submission           → fetch with ownership check
   - get_user_submissions     → list all for a user
-
-All business logic stays here; routers only call these functions.
 """
 
-from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from typing import Optional
-from fastapi import HTTPException, status
 
-from app.models import Submission, SubmissionData, SubmissionStatus, Form, FormField
+from fastapi import HTTPException, status
+from google.cloud.firestore import SERVER_TIMESTAMP
+
+from app.database import get_db
+from app.models import (
+    COLL_SUBMISSIONS, COLL_SUBMISSION_DATA, COLL_FORMS,
+    SubmissionStatus, ConversationState,
+)
 from app.services.form_service import get_ordered_active_fields
 from app.core.logging import get_logger
 
@@ -28,61 +33,69 @@ logger = get_logger()
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _get_submission_or_404(submission_id: int, db: Session) -> Submission:
-    sub = db.query(Submission).filter(Submission.id == submission_id).first()
-    if not sub:
+def _doc_to_dict(doc) -> dict:
+    return {"id": doc.id, **doc.to_dict()}
+
+
+def _get_submission_or_404(submission_id: str) -> dict:
+    db = get_db()
+    doc = db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+    if not doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Submission {submission_id} not found",
         )
-    return sub
+    return _doc_to_dict(doc)
 
 
-def _assert_ownership(submission: Submission, user_id: int) -> None:
-    if submission.user_id != user_id:
+def _assert_ownership(submission: dict, user_id: str) -> None:
+    if submission["user_id"] != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this submission",
         )
 
 
-def _answered_keys(submission: Submission) -> set[str]:
-    return {d.field_key for d in submission.data}
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def create_submission(user_id: int, form_id: int, db: Session) -> Submission:
+def create_submission(user_id: str, form_id: str) -> dict:
     """
     Start a new draft submission for the given user and form.
 
     Raises:
         HTTPException 404: If the form does not exist or is inactive.
     """
-    form = db.query(Form).filter(Form.id == form_id, Form.is_active == True).first()
-    if not form:
+    db = get_db()
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists or not form_doc.to_dict().get("is_active", False):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Form {form_id} not found or inactive",
         )
 
-    submission = Submission(
-        user_id=user_id,
-        form_id=form_id,
-        status=SubmissionStatus.DRAFT,
-        current_field_index=0,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
+    now = datetime.now(timezone.utc)
+    sub_ref = db.collection(COLL_SUBMISSIONS).document()
+    sub_data = {
+        "user_id": user_id,
+        "form_id": form_id,
+        "status": SubmissionStatus.DRAFT,
+        "current_field_index": 0,
+        "conversation_state": ConversationState.FILLING_FORM,
+        "signature_path": None,
+        "pdf_path": None,
+        "signed_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    sub_ref.set(sub_data)
+    result = {"id": sub_ref.id, **sub_data}
+    logger.info(f"Created submission {sub_ref.id} for user {user_id}, form {form_id}")
+    return result
 
-    logger.info(f"Created submission {submission.id} for user {user_id}, form {form_id}")
-    return submission
 
-
-def get_submission(submission_id: int, user_id: int, db: Session) -> Submission:
+def get_submission(submission_id: str, user_id: str) -> dict:
     """
     Fetch a submission by ID, enforcing ownership.
 
@@ -90,119 +103,123 @@ def get_submission(submission_id: int, user_id: int, db: Session) -> Submission:
         HTTPException 404: Submission not found.
         HTTPException 403: Caller does not own this submission.
     """
-    sub = _get_submission_or_404(submission_id, db)
+    sub = _get_submission_or_404(submission_id)
     _assert_ownership(sub, user_id)
+
+    # Attach answered data
+    sub["data"] = _get_submission_data(submission_id)
     return sub
 
 
-def get_current_field(submission_id: int, db: Session) -> Optional[FormField]:
+def _get_submission_data(submission_id: str) -> list[dict]:
+    """Fetch all answered field data for a submission."""
+    db = get_db()
+    docs = (
+        db.collection(COLL_SUBMISSION_DATA)
+        .where("submission_id", "==", submission_id)
+        .stream()
+    )
+    return [{"id": d.id, **d.to_dict()} for d in docs]
+
+
+def get_current_field(submission_id: str) -> Optional[dict]:
     """
-    Return the FormField at the submission's current_field_index.
+    Return the field dict at the submission's current_field_index.
     Returns None if all fields have been answered (index out of range).
     """
-    sub = _get_submission_or_404(submission_id, db)
-    fields = get_ordered_active_fields(sub.form_id, db)
-
-    idx = sub.current_field_index
+    sub = _get_submission_or_404(submission_id)
+    fields = get_ordered_active_fields(sub["form_id"])
+    idx = sub["current_field_index"]
     if idx >= len(fields):
-        return None  # All fields done
+        return None
     return fields[idx]
 
 
 def save_field_value(
-    submission_id: int,
+    submission_id: str,
     field_key: str,
     value: str,
-    db: Session,
-) -> SubmissionData:
+) -> dict:
     """
     Upsert a field answer for the given submission.
-
-    Validates:
-      - Submission exists
-      - field_key belongs to the form
-      - Submission is still a draft
 
     Raises:
         HTTPException 404: Submission or field not found.
         HTTPException 409: Submission already completed.
     """
-    sub = _get_submission_or_404(submission_id, db)
+    db = get_db()
+    sub = _get_submission_or_404(submission_id)
 
-    if sub.status == SubmissionStatus.COMPLETED:
+    if sub["status"] == SubmissionStatus.COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot modify a completed submission",
         )
 
     # Validate field_key belongs to this form
-    field = (
-        db.query(FormField)
-        .filter(
-            FormField.form_id == sub.form_id,
-            FormField.field_key == field_key,
-            FormField.is_active == True,
-        )
-        .first()
-    )
+    fields = get_ordered_active_fields(sub["form_id"])
+    field = next((f for f in fields if f["field_key"] == field_key), None)
     if not field:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Field '{field_key}' not found in form {sub.form_id}",
+            detail=f"Field '{field_key}' not found in form {sub['form_id']}",
         )
 
-    # Upsert
-    existing = (
-        db.query(SubmissionData)
-        .filter(
-            SubmissionData.submission_id == submission_id,
-            SubmissionData.field_key == field_key,
-        )
-        .first()
+    now = datetime.now(timezone.utc)
+
+    # Check for existing answer (upsert)
+    existing_docs = (
+        db.collection(COLL_SUBMISSION_DATA)
+        .where("submission_id", "==", submission_id)
+        .where("field_key", "==", field_key)
+        .limit(1)
+        .stream()
     )
+    existing = next(existing_docs, None)
 
     if existing:
-        existing.value = value
-        db.commit()
-        db.refresh(existing)
-        logger.info(f"Updated field '{field_key}' on submission {submission_id}")
-        return existing
-    else:
-        entry = SubmissionData(
-            submission_id=submission_id,
-            field_key=field_key,
-            value=value,
+        db.collection(COLL_SUBMISSION_DATA).document(existing.id).update(
+            {"value": value, "updated_at": now}
         )
-        db.add(entry)
-        db.commit()
-        db.refresh(entry)
+        logger.info(f"Updated field '{field_key}' on submission {submission_id}")
+        return {"id": existing.id, "submission_id": submission_id, "field_key": field_key, "value": value, "updated_at": now}
+    else:
+        data_ref = db.collection(COLL_SUBMISSION_DATA).document()
+        entry = {
+            "submission_id": submission_id,
+            "field_key": field_key,
+            "value": value,
+            "created_at": now,
+            "updated_at": now,
+        }
+        data_ref.set(entry)
         logger.info(f"Saved field '{field_key}' on submission {submission_id}")
-        return entry
+        return {"id": data_ref.id, **entry}
 
 
-def move_to_next_field(submission_id: int, db: Session) -> Submission:
+def move_to_next_field(submission_id: str) -> dict:
     """
     Advance current_field_index by 1 (capped at total field count).
-
-    Returns:
-        Updated Submission object.
+    Returns updated submission dict.
     """
-    sub = _get_submission_or_404(submission_id, db)
-    fields = get_ordered_active_fields(sub.form_id, db)
+    sub = _get_submission_or_404(submission_id)
+    fields = get_ordered_active_fields(sub["form_id"])
     total = len(fields)
 
-    if sub.current_field_index < total:
-        sub.current_field_index += 1
+    new_index = sub["current_field_index"]
+    if new_index < total:
+        new_index += 1
 
-    db.commit()
-    db.refresh(sub)
-    logger.info(
-        f"Submission {submission_id} moved to field index {sub.current_field_index}/{total}"
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update(
+        {"current_field_index": new_index, "updated_at": datetime.now(timezone.utc)}
     )
+    sub["current_field_index"] = new_index
+    logger.info(f"Submission {submission_id} moved to field index {new_index}/{total}")
     return sub
 
 
-def complete_submission(submission_id: int, user_id: int, db: Session) -> Submission:
+def complete_submission(submission_id: str, user_id: str) -> dict:
     """
     Validate all required fields are answered, then mark submission as completed.
 
@@ -211,44 +228,47 @@ def complete_submission(submission_id: int, user_id: int, db: Session) -> Submis
         HTTPException 409: Already completed.
         HTTPException 422: One or more required fields are missing.
     """
-    sub = _get_submission_or_404(submission_id, db)
+    sub = _get_submission_or_404(submission_id)
     _assert_ownership(sub, user_id)
 
-    if sub.status == SubmissionStatus.COMPLETED:
+    if sub["status"] == SubmissionStatus.COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Submission is already completed",
         )
 
-    fields = get_ordered_active_fields(sub.form_id, db)
-    answered = _answered_keys(sub)
+    fields = get_ordered_active_fields(sub["form_id"])
+    answered_data = _get_submission_data(submission_id)
+    answered_keys = {d["field_key"] for d in answered_data}
 
-    missing = [
-        f.field_key
-        for f in fields
-        if f.required and f.field_key not in answered
-    ]
-
+    missing = [f["field_key"] for f in fields if f.get("required", True) and f["field_key"] not in answered_keys]
     if missing:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Required fields not answered: {missing}",
         )
 
-    sub.status = SubmissionStatus.COMPLETED
-    sub.current_field_index = len(fields)  # Advance past all fields
-    db.commit()
-    db.refresh(sub)
+    now = datetime.now(timezone.utc)
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "status": SubmissionStatus.COMPLETED,
+        "current_field_index": len(fields),
+        "updated_at": now,
+    })
+    sub["status"] = SubmissionStatus.COMPLETED
+    sub["current_field_index"] = len(fields)
 
     logger.info(f"Submission {submission_id} completed by user {user_id}")
     return sub
 
 
-def get_user_submissions(user_id: int, db: Session) -> list[Submission]:
+def get_user_submissions(user_id: str) -> list[dict]:
     """Return all submissions for a user, newest first."""
-    return (
-        db.query(Submission)
-        .filter(Submission.user_id == user_id)
-        .order_by(Submission.created_at.desc())
-        .all()
+    db = get_db()
+    docs = (
+        db.collection(COLL_SUBMISSIONS)
+        .where("user_id", "==", user_id)
+        .order_by("created_at", direction="DESCENDING")
+        .stream()
     )
+    return [{"id": d.id, **d.to_dict()} for d in docs]

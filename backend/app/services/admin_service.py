@@ -1,5 +1,5 @@
 """
-Admin Service Layer — BankAI Admin Panel
+Admin Service Layer — BankAI Admin Panel (Firestore edition)
 
 Provides all business logic for the admin panel:
   - Bank CRUD
@@ -8,72 +8,104 @@ Provides all business logic for the admin panel:
   - FormField CRUD
   - Submission read (admin view, no ownership restriction)
 
-All functions accept a SQLAlchemy Session and raise HTTPException on errors.
+All IDs are Firestore string document IDs.
+All functions raise HTTPException on errors.
 """
 
-from sqlalchemy.orm import Session, joinedload
+from datetime import datetime, timezone
 from typing import Optional, Any
+
 from fastapi import HTTPException, status
 
+from app.database import get_db
 from app.models import (
-    Bank, Form, FormSection, FormField,
-    Submission, SubmissionData,
+    COLL_BANKS, COLL_FORMS, COLL_FORM_SECTIONS,
+    COLL_FORM_FIELDS, COLL_SUBMISSIONS, COLL_SUBMISSION_DATA,
 )
 from app.core.logging import get_logger
 
 logger = get_logger()
 
 
+def _doc_to_dict(doc) -> dict:
+    return {"id": doc.id, **doc.to_dict()}
+
+
 # ---------------------------------------------------------------------------
 # Banks
 # ---------------------------------------------------------------------------
 
-def list_banks(db: Session) -> list[Bank]:
+def list_banks() -> list[dict]:
     """Return all banks ordered by name."""
-    return db.query(Bank).order_by(Bank.name).all()
+    db = get_db()
+    docs = db.collection(COLL_BANKS).order_by("name").stream()
+    return [_doc_to_dict(d) for d in docs]
 
 
-def create_bank(name: str, code: str, db: Session) -> Bank:
+def create_bank(name: str, code: str) -> dict:
     """
     Create a new bank.
 
     Raises:
         HTTPException 409: Bank with this code already exists.
     """
+    db = get_db()
     code = code.upper().strip()
-    existing = db.query(Bank).filter(Bank.code == code).first()
-    if existing:
+
+    existing = db.collection(COLL_BANKS).where("code", "==", code).limit(1).stream()
+    if next(existing, None):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Bank with code '{code}' already exists",
         )
-    bank = Bank(name=name.strip(), code=code, is_active=True)
-    db.add(bank)
-    db.commit()
-    db.refresh(bank)
+
+    now = datetime.now(timezone.utc)
+    ref = db.collection(COLL_BANKS).document()
+    data = {
+        "name": name.strip(),
+        "code": code,
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+    }
+    ref.set(data)
     logger.info(f"Admin created bank: {code}")
-    return bank
+    return {"id": ref.id, **data}
 
 
 # ---------------------------------------------------------------------------
 # Forms
 # ---------------------------------------------------------------------------
 
-def list_forms(db: Session, bank_id: Optional[int] = None) -> list[Form]:
+def list_forms(bank_id: Optional[str] = None) -> list[dict]:
     """Return all forms, optionally filtered by bank."""
-    q = db.query(Form).options(joinedload(Form.bank))
+    db = get_db()
+
+    # Pre-fetch all banks to prevent N+1 document queries
+    banks_docs = db.collection(COLL_BANKS).stream()
+    bank_cache = {d.id: d.to_dict().get("name", "") for d in banks_docs}
+
+    q = db.collection(COLL_FORMS)
     if bank_id is not None:
-        q = q.filter(Form.bank_id == bank_id)
-    return q.order_by(Form.bank_id, Form.name).all()
+        q = q.where("bank_id", "==", bank_id)
+    docs = q.stream()
+
+    forms = [_doc_to_dict(d) for d in docs]
+
+    # Attach bank_name for each form
+    for f in forms:
+        bid = f.get("bank_id", "")
+        f["bank_name"] = bank_cache.get(bid, "")
+
+    return sorted(forms, key=lambda x: (x.get("bank_id", ""), x.get("name", "")))
 
 
 def create_form(
-    bank_id: int,
+    bank_id: str,
     name: str,
     code: str,
     description: Optional[str],
-    db: Session,
-) -> Form:
+) -> dict:
     """
     Create a new form under a bank.
 
@@ -81,131 +113,143 @@ def create_form(
         HTTPException 404: Bank not found.
         HTTPException 409: Form code already exists for this bank.
     """
-    bank = db.query(Bank).filter(Bank.id == bank_id).first()
-    if not bank:
+    db = get_db()
+    bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+    if not bank_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Bank {bank_id} not found",
         )
+
     code = code.lower().strip().replace(" ", "_")
-    existing = db.query(Form).filter(Form.bank_id == bank_id, Form.code == code).first()
-    if existing:
+    existing = (
+        db.collection(COLL_FORMS)
+        .where("bank_id", "==", bank_id)
+        .where("code", "==", code)
+        .limit(1)
+        .stream()
+    )
+    if next(existing, None):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Form code '{code}' already exists for this bank",
         )
-    form = Form(
-        bank_id=bank_id,
-        name=name.strip(),
-        code=code,
-        description=description,
-        is_active=True,
-    )
-    db.add(form)
-    db.commit()
-    db.refresh(form)
+
+    now = datetime.now(timezone.utc)
+    ref = db.collection(COLL_FORMS).document()
+    data = {
+        "bank_id": bank_id,
+        "name": name.strip(),
+        "code": code,
+        "description": description,
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+    }
+    ref.set(data)
     logger.info(f"Admin created form: '{code}' for bank {bank_id}")
-    return form
+    return {"id": ref.id, **data}
 
 
 def update_form(
-    form_id: int,
+    form_id: str,
     name: Optional[str],
     description: Optional[str],
     is_active: Optional[bool],
-    db: Session,
-) -> Form:
+) -> dict:
     """
     Update a form's metadata.
 
     Raises:
         HTTPException 404: Form not found.
     """
-    form = db.query(Form).filter(Form.id == form_id).first()
-    if not form:
+    db = get_db()
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Form {form_id} not found",
         )
+
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
     if name is not None:
-        form.name = name.strip()
+        updates["name"] = name.strip()
     if description is not None:
-        form.description = description
+        updates["description"] = description
     if is_active is not None:
-        form.is_active = is_active
-    db.commit()
-    db.refresh(form)
+        updates["is_active"] = is_active
+
+    db.collection(COLL_FORMS).document(form_id).update(updates)
     logger.info(f"Admin updated form {form_id}")
-    return form
+    updated = db.collection(COLL_FORMS).document(form_id).get()
+    return _doc_to_dict(updated)
 
 
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
 
-def list_sections(form_id: int, db: Session) -> list[FormSection]:
+def list_sections(form_id: str) -> list[dict]:
     """Return all sections for a form, ordered by order_index."""
-    _assert_form_exists(form_id, db)
-    return (
-        db.query(FormSection)
-        .filter(FormSection.form_id == form_id)
-        .order_by(FormSection.order_index)
-        .all()
+    _assert_form_exists(form_id)
+    db = get_db()
+    docs = (
+        db.collection(COLL_FORM_SECTIONS)
+        .where("form_id", "==", form_id)
+        .order_by("order_index")
+        .stream()
     )
+    return [_doc_to_dict(d) for d in docs]
 
 
-def create_section(
-    form_id: int,
-    name: str,
-    order_index: int,
-    db: Session,
-) -> FormSection:
+def create_section(form_id: str, name: str, order_index: int) -> dict:
     """
     Create a new section within a form.
 
     Raises:
         HTTPException 404: Form not found.
     """
-    _assert_form_exists(form_id, db)
-    section = FormSection(
-        form_id=form_id,
-        name=name.strip(),
-        order_index=order_index,
-    )
-    db.add(section)
-    db.commit()
-    db.refresh(section)
+    _assert_form_exists(form_id)
+    db = get_db()
+    ref = db.collection(COLL_FORM_SECTIONS).document()
+    data = {
+        "form_id": form_id,
+        "name": name.strip(),
+        "order_index": order_index,
+    }
+    ref.set(data)
     logger.info(f"Admin created section '{name}' in form {form_id}")
-    return section
+    return {"id": ref.id, **data}
 
 
 # ---------------------------------------------------------------------------
 # Fields
 # ---------------------------------------------------------------------------
 
-def list_fields(form_id: int, db: Session) -> list[FormField]:
+def list_fields(form_id: str) -> list[dict]:
     """Return all fields for a form, ordered by order_index."""
-    _assert_form_exists(form_id, db)
-    return (
-        db.query(FormField)
-        .filter(FormField.form_id == form_id)
-        .order_by(FormField.order_index)
-        .all()
+    _assert_form_exists(form_id)
+    db = get_db()
+    docs = (
+        db.collection(COLL_FORM_FIELDS)
+        .where("form_id", "==", form_id)
+        .order_by("order_index")
+        .stream()
     )
+    return [_doc_to_dict(d) for d in docs]
 
 
 def create_field(
-    form_id: int,
+    form_id: str,
     field_key: str,
     label: str,
     field_type: str,
     required: bool,
     order_index: int,
-    section_id: Optional[int],
+    section_id: Optional[str],
     validation_rule: Optional[Any],
     options: Optional[Any],
-    db: Session,
-) -> FormField:
+) -> dict:
     """
     Create a new field within a form.
 
@@ -213,39 +257,58 @@ def create_field(
         HTTPException 404: Form not found.
         HTTPException 409: field_key already exists for this form.
     """
-    _assert_form_exists(form_id, db)
+    _assert_form_exists(form_id)
+    db = get_db()
+
+    # Validate section_id exists and belongs to this form
+    if section_id:
+        section_doc = db.collection(COLL_FORM_SECTIONS).document(section_id).get()
+        if not section_doc.exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Section {section_id} not found",
+            )
+        if section_doc.to_dict().get("form_id") != form_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Section {section_id} does not belong to form {form_id}",
+            )
+
     field_key = field_key.strip().lower().replace(" ", "_")
+
     existing = (
-        db.query(FormField)
-        .filter(FormField.form_id == form_id, FormField.field_key == field_key)
-        .first()
+        db.collection(COLL_FORM_FIELDS)
+        .where("form_id", "==", form_id)
+        .where("field_key", "==", field_key)
+        .limit(1)
+        .stream()
     )
-    if existing:
+    if next(existing, None):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Field key '{field_key}' already exists in form {form_id}",
         )
-    field = FormField(
-        form_id=form_id,
-        section_id=section_id,
-        field_key=field_key,
-        label=label.strip(),
-        field_type=field_type,
-        required=required,
-        order_index=order_index,
-        validation_rule=validation_rule,
-        options=options,
-        is_active=True,
-    )
-    db.add(field)
-    db.commit()
-    db.refresh(field)
+
+    ref = db.collection(COLL_FORM_FIELDS).document()
+    data = {
+        "form_id": form_id,
+        "section_id": section_id,
+        "field_key": field_key,
+        "label": label.strip(),
+        "field_type": field_type,
+        "required": required,
+        "order_index": order_index,
+        "validation_rule": validation_rule,
+        "options": options,
+        "is_active": True,
+    }
+    ref.set(data)
     logger.info(f"Admin created field '{field_key}' in form {form_id}")
-    return field
+    return {"id": ref.id, **data}
 
 
 def update_field(
-    field_id: int,
+    field_id: str,
     label: Optional[str],
     field_type: Optional[str],
     required: Optional[bool],
@@ -253,116 +316,154 @@ def update_field(
     is_active: Optional[bool],
     validation_rule: Optional[Any],
     options: Optional[Any],
-    db: Session,
-) -> FormField:
+) -> dict:
     """
     Update a form field.
 
     Raises:
         HTTPException 404: Field not found.
     """
-    field = db.query(FormField).filter(FormField.id == field_id).first()
-    if not field:
+    db = get_db()
+    field_doc = db.collection(COLL_FORM_FIELDS).document(field_id).get()
+    if not field_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Field {field_id} not found",
         )
+
+    updates: dict = {}
     if label is not None:
-        field.label = label.strip()
+        updates["label"] = label.strip()
     if field_type is not None:
-        field.field_type = field_type
+        updates["field_type"] = field_type
     if required is not None:
-        field.required = required
+        updates["required"] = required
     if order_index is not None:
-        field.order_index = order_index
+        updates["order_index"] = order_index
     if is_active is not None:
-        field.is_active = is_active
+        updates["is_active"] = is_active
     if validation_rule is not None:
-        field.validation_rule = validation_rule
+        updates["validation_rule"] = validation_rule
     if options is not None:
-        field.options = options
-    db.commit()
-    db.refresh(field)
+        updates["options"] = options
+
+    if updates:
+        db.collection(COLL_FORM_FIELDS).document(field_id).update(updates)
     logger.info(f"Admin updated field {field_id}")
-    return field
+    updated = db.collection(COLL_FORM_FIELDS).document(field_id).get()
+    return _doc_to_dict(updated)
 
 
 # ---------------------------------------------------------------------------
 # Submissions (admin read-only)
 # ---------------------------------------------------------------------------
 
-def list_all_submissions(
-    db: Session,
-    skip: int = 0,
-    limit: int = 50,
-) -> list[dict]:
+def list_all_submissions(skip: int = 0, limit: int = 50) -> list[dict]:
     """
     Return all submissions with form and bank metadata.
-    Sorted newest first. Paginated via skip/limit.
+    Sorted newest first. Paginated via skip/limit at the database level.
     """
-    rows = (
-        db.query(Submission)
-        .options(joinedload(Submission.form).joinedload(Form.bank))
-        .order_by(Submission.created_at.desc())
+    db = get_db()
+    docs = (
+        db.collection(COLL_SUBMISSIONS)
+        .order_by("created_at", direction="DESCENDING")
         .offset(skip)
         .limit(limit)
-        .all()
+        .stream()
     )
+
+    rows = list(docs)
+
+    # Pre-cache forms and banks
+    form_cache: dict[str, dict] = {}
+    bank_cache: dict[str, dict] = {}
+
     result = []
-    for sub in rows:
+    for doc in rows:
+        sub = doc.to_dict()
+        form_id = sub.get("form_id", "")
+        if form_id not in form_cache:
+            form_doc = db.collection(COLL_FORMS).document(form_id).get()
+            form_cache[form_id] = form_doc.to_dict() if form_doc.exists else {}
+
+        form_data = form_cache[form_id]
+        bank_id = form_data.get("bank_id", "")
+        if bank_id not in bank_cache:
+            bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+            bank_cache[bank_id] = bank_doc.to_dict() if bank_doc.exists else {}
+
+        bank_data = bank_cache[bank_id]
+        created_at = sub.get("created_at")
+        updated_at = sub.get("updated_at")
         result.append({
-            "id": sub.id,
-            "user_id": sub.user_id,
-            "form_id": sub.form_id,
-            "form_name": sub.form.name if sub.form else None,
-            "bank_name": sub.form.bank.name if sub.form and sub.form.bank else None,
-            "status": sub.status,
-            "conversation_state": sub.conversation_state,
-            "created_at": sub.created_at.isoformat() if sub.created_at else None,
-            "updated_at": sub.updated_at.isoformat() if sub.updated_at else None,
+            "id": doc.id,
+            "user_id": sub.get("user_id"),
+            "form_id": form_id,
+            "form_name": form_data.get("name"),
+            "bank_name": bank_data.get("name"),
+            "status": sub.get("status"),
+            "conversation_state": sub.get("conversation_state"),
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at) if created_at else None,
+            "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at) if updated_at else None,
         })
     return result
 
 
-def get_submission_detail(submission_id: int, db: Session) -> dict:
+def get_submission_detail(submission_id: str) -> dict:
     """
     Return a single submission with all its answered field data.
 
     Raises:
         HTTPException 404: Submission not found.
     """
-    sub = (
-        db.query(Submission)
-        .options(
-            joinedload(Submission.data),
-            joinedload(Submission.form).joinedload(Form.bank),
-        )
-        .filter(Submission.id == submission_id)
-        .first()
-    )
-    if not sub:
+    db = get_db()
+    sub_doc = db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+    if not sub_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Submission {submission_id} not found",
         )
+    sub = sub_doc.to_dict()
+
+    form_id = sub.get("form_id", "")
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    form_data = form_doc.to_dict() if form_doc.exists else {}
+
+    bank_id = form_data.get("bank_id", "")
+    bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+    bank_data = bank_doc.to_dict() if bank_doc.exists else {}
+
+    # Load submission data
+    data_docs = (
+        db.collection(COLL_SUBMISSION_DATA)
+        .where("submission_id", "==", submission_id)
+        .stream()
+    )
+
+    created_at = sub.get("created_at")
+    updated_at = sub.get("updated_at")
     return {
-        "id": sub.id,
-        "user_id": sub.user_id,
-        "form_id": sub.form_id,
-        "form_name": sub.form.name if sub.form else None,
-        "bank_name": sub.form.bank.name if sub.form and sub.form.bank else None,
-        "status": sub.status,
-        "conversation_state": sub.conversation_state,
-        "current_field_index": sub.current_field_index,
-        "created_at": sub.created_at.isoformat() if sub.created_at else None,
-        "updated_at": sub.updated_at.isoformat() if sub.updated_at else None,
+        "id": sub_doc.id,
+        "user_id": sub.get("user_id"),
+        "form_id": form_id,
+        "form_name": form_data.get("name"),
+        "bank_name": bank_data.get("name"),
+        "status": sub.get("status"),
+        "conversation_state": sub.get("conversation_state"),
+        "current_field_index": sub.get("current_field_index", 0),
+        "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at) if created_at else None,
+        "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at) if updated_at else None,
         "data": [
             {
-                "field_key": d.field_key,
-                "value": d.value,
-                "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+                "field_key": d.to_dict().get("field_key"),
+                "value": d.to_dict().get("value"),
+                "updated_at": (
+                    d.to_dict()["updated_at"].isoformat()
+                    if d.to_dict().get("updated_at") and hasattr(d.to_dict()["updated_at"], "isoformat")
+                    else None
+                ),
             }
-            for d in sub.data
+            for d in data_docs
         ],
     }
 
@@ -371,11 +472,12 @@ def get_submission_detail(submission_id: int, db: Session) -> dict:
 # Private helpers
 # ---------------------------------------------------------------------------
 
-def _assert_form_exists(form_id: int, db: Session) -> Form:
-    form = db.query(Form).filter(Form.id == form_id).first()
-    if not form:
+def _assert_form_exists(form_id: str) -> dict:
+    db = get_db()
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Form {form_id} not found",
         )
-    return form
+    return _doc_to_dict(form_doc)

@@ -3,13 +3,15 @@ Admin API Router — BankAI Admin Panel
 
 All endpoints require the `require_admin_user` dependency.
 Routes are registered under /api/v1/admin/ in main.py.
+
+Firestore edition:
+- No SQLAlchemy Session dependency — admin_service uses get_db() internally.
+- All IDs are Firestore string document IDs (str), not ints.
 """
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.database import get_db
 from app.core.security import require_admin_user
 from app.core.logging import get_logger
 from app.services import admin_service
@@ -36,21 +38,19 @@ router = APIRouter()
 
 @router.get("/banks", response_model=list[BankAdminOut])
 def list_banks(
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """List all banks."""
-    return admin_service.list_banks(db)
+    """List all banks ordered by name."""
+    return admin_service.list_banks()
 
 
 @router.post("/banks", response_model=BankAdminOut, status_code=201)
 def create_bank(
     payload: BankCreate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
     """Create a new bank."""
-    return admin_service.create_bank(payload.name, payload.code, db)
+    return admin_service.create_bank(payload.name, payload.code)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -59,44 +59,39 @@ def create_bank(
 
 @router.get("/forms", response_model=list[FormAdminOut])
 def list_forms(
-    bank_id: Optional[int] = Query(None, description="Filter by bank ID"),
-    db: Session = Depends(get_db),
+    bank_id: Optional[str] = Query(None, description="Filter by bank Firestore ID"),
     _admin=Depends(require_admin_user),
 ):
     """List all forms, optionally filtered by bank_id."""
-    return admin_service.list_forms(db, bank_id=bank_id)
+    return admin_service.list_forms(bank_id=bank_id)
 
 
 @router.post("/forms", response_model=FormAdminOut, status_code=201)
 def create_form(
     payload: FormCreate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """Create a new form."""
+    """Create a new form under a bank."""
     return admin_service.create_form(
         bank_id=payload.bank_id,
         name=payload.name,
         code=payload.code,
         description=payload.description,
-        db=db,
     )
 
 
 @router.put("/forms/{form_id}", response_model=FormAdminOut)
 def update_form(
-    form_id: int,
+    form_id: str,
     payload: FormUpdate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """Update a form's metadata."""
+    """Update a form's metadata (name, description, is_active)."""
     return admin_service.update_form(
         form_id=form_id,
         name=payload.name,
         description=payload.description,
         is_active=payload.is_active,
-        db=db,
     )
 
 
@@ -106,19 +101,17 @@ def update_form(
 
 @router.get("/forms/{form_id}/sections", response_model=list[SectionAdminOut])
 def list_sections(
-    form_id: int,
-    db: Session = Depends(get_db),
+    form_id: str,
     _admin=Depends(require_admin_user),
 ):
-    """List all sections of a form."""
-    return admin_service.list_sections(form_id, db)
+    """List all sections of a form ordered by order_index."""
+    return admin_service.list_sections(form_id)
 
 
 @router.post("/forms/{form_id}/sections", response_model=SectionAdminOut, status_code=201)
 def create_section(
-    form_id: int,
+    form_id: str,
     payload: SectionCreate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
     """Create a new section within a form."""
@@ -126,7 +119,6 @@ def create_section(
         form_id=form_id,
         name=payload.name,
         order_index=payload.order_index,
-        db=db,
     )
 
 
@@ -136,19 +128,17 @@ def create_section(
 
 @router.get("/forms/{form_id}/fields", response_model=list[FieldAdminOut])
 def list_fields(
-    form_id: int,
-    db: Session = Depends(get_db),
+    form_id: str,
     _admin=Depends(require_admin_user),
 ):
-    """List all fields of a form."""
-    return admin_service.list_fields(form_id, db)
+    """List all fields of a form ordered by order_index."""
+    return admin_service.list_fields(form_id)
 
 
 @router.post("/forms/{form_id}/fields", response_model=FieldAdminOut, status_code=201)
 def create_field(
-    form_id: int,
+    form_id: str,
     payload: FieldCreate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
     """Create a new field within a form."""
@@ -162,18 +152,16 @@ def create_field(
         section_id=payload.section_id,
         validation_rule=payload.validation_rule,
         options=payload.options,
-        db=db,
     )
 
 
 @router.put("/fields/{field_id}", response_model=FieldAdminOut)
 def update_field(
-    field_id: int,
+    field_id: str,
     payload: FieldUpdate,
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
-    """Update a form field."""
+    """Update a form field's properties."""
     return admin_service.update_field(
         field_id=field_id,
         label=payload.label,
@@ -183,7 +171,6 @@ def update_field(
         is_active=payload.is_active,
         validation_rule=payload.validation_rule,
         options=payload.options,
-        db=db,
     )
 
 
@@ -195,21 +182,19 @@ def update_field(
 def list_submissions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
     _admin=Depends(require_admin_user),
 ):
     """
     List all form submissions (all users, all banks).
-    Sorted newest first, paginated.
+    Sorted newest first, paginated via skip/limit.
     """
-    return admin_service.list_all_submissions(db, skip=skip, limit=limit)
+    return admin_service.list_all_submissions(skip=skip, limit=limit)
 
 
 @router.get("/submissions/{submission_id}", response_model=AdminSubmissionDetail)
 def get_submission(
-    submission_id: int,
-    db: Session = Depends(get_db),
+    submission_id: str,
     _admin=Depends(require_admin_user),
 ):
-    """Get full detail of a single submission including answered fields."""
-    return admin_service.get_submission_detail(submission_id, db)
+    """Get full detail of a single submission including all answered fields."""
+    return admin_service.get_submission_detail(submission_id)

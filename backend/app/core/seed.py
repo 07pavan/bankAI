@@ -159,7 +159,7 @@ def seed_defaults() -> None:
 def _seed_banks() -> None:
     db = get_db()
     for bank_data in BANKS:
-        existing = db.collection(COLL_BANKS).where("code", "==", bank_data["code"]).limit(1).stream()
+        existing = db.collection(COLL_BANKS).where("code", "==", bank_data["code"]).limit(1).stream(timeout=5.0)
         if next(existing, None):
             continue  # Already seeded
         now = datetime.now(timezone.utc)

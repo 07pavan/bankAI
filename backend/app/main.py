@@ -104,8 +104,23 @@ async def startup_event():
     logger.info("Firestore connection initialised")
 
     # Seed default banks, forms, and admin user
+    from app.database import is_db_configured
     from app.core.seed import seed_defaults
-    seed_defaults()
+    
+    if is_db_configured():
+        try:
+            seed_defaults()
+        except Exception as exc:
+            logger.error(
+                f"Failed to seed defaults during startup: {exc}. "
+                "Please verify your Firebase credentials configuration (FIREBASE_CREDENTIALS_JSON or FIREBASE_CREDENTIALS_PATH)."
+            )
+    else:
+        logger.warning(
+            "Firebase credentials look like placeholder/dummy keys and no Firestore Emulator is active. "
+            "Bypassing startup database seeding to avoid long connection timeouts. "
+            "Please configure your environment variables (FIREBASE_CREDENTIALS_JSON) on Render with your real Firebase Service Account key."
+        )
 
     # Initialise conversation checkpointer (MemorySaver)
     from app.core.checkpointer import init_checkpointer

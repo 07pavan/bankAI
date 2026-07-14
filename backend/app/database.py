@@ -85,3 +85,26 @@ def get_db() -> Client:
     if _firestore_client is None:
         _firestore_client = _init_firebase()
     return _firestore_client
+
+
+def is_db_configured() -> bool:
+    """
+    Check if Firestore configuration seems valid (either running inside the emulator
+    or using actual non-dummy credentials).
+    """
+    if os.environ.get("FIRESTORE_EMULATOR_HOST"):
+        return True
+
+    from app.core.config import settings
+
+    if settings.FIREBASE_CREDENTIALS_JSON:
+        # Check if the JSON is non-dummy
+        if "dummy" not in settings.FIREBASE_CREDENTIALS_JSON.lower() and "bankai-dev-project" not in settings.FIREBASE_CREDENTIALS_JSON:
+            return True
+
+    if settings.FIREBASE_CREDENTIALS_PATH:
+        # Check if filepath is non-dummy
+        if "dummy" not in settings.FIREBASE_CREDENTIALS_PATH.lower():
+            return True
+
+    return False

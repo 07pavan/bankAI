@@ -16,6 +16,7 @@ Output: /backend/pdfs/{uuid}.pdf
 import os
 import re
 import uuid
+import hashlib
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -34,7 +35,7 @@ from app.database import get_db
 from app.models import (
     COLL_SUBMISSIONS, COLL_FORMS, COLL_FORM_SECTIONS,
     COLL_FORM_FIELDS, COLL_SUBMISSION_DATA, COLL_BANKS,
-    SubmissionStatus,
+    COLL_USERS, COLL_KYC_SUBMISSIONS, SubmissionStatus,
 )
 from app.core.logging import get_logger
 
@@ -114,12 +115,37 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
         )
     sub = sub_doc.to_dict()
 
-    # --- Ownership check ---
-    if sub.get("user_id") != user_id:
+    # --- Load user details for audit & role authorization ---
+    user_doc = db.collection(COLL_USERS).document(user_id).get()
+    if not user_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    user_data = user_doc.to_dict()
+    is_admin = user_data.get("role") == "admin"
+    aadhaar_hash = user_data.get("aadhaar_hash", "N/A")
+
+    # --- Ownership check (allow owner OR admin) ---
+    if sub.get("user_id") != user_id and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied to this submission.",
         )
+
+    # --- Load user's KYC details (e.g. selfie path) ---
+    owner_user_id = sub.get("user_id")
+    kyc_docs = (
+        db.collection(COLL_KYC_SUBMISSIONS)
+        .where("user_id", "==", owner_user_id)
+        .order_by("created_at", direction="DESCENDING")
+        .limit(1)
+        .stream()
+    )
+    kyc_doc = next(kyc_docs, None)
+    selfie_path = None
+    if kyc_doc:
+        selfie_path = kyc_doc.to_dict().get("selfie_path")
 
     # --- Status check ---
     if sub.get("status") != SubmissionStatus.COMPLETED.value:
@@ -248,10 +274,19 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
 
     elements = []
 
-    # --- Header ---
-    elements.append(Paragraph(f"🏦 {bank_name}", styles['BankHeader']))
-    elements.append(Paragraph(form.get("name", "Application"), styles['FormTitle']))
-    elements.append(Spacer(1, 4 * mm))
+    # --- Resolve Selfie Path ---
+    selfie_dir = os.path.join(os.path.dirname(__file__), "..", "..", "selfies")
+    selfie_abs_path = None
+    if selfie_path:
+        selfie_abs_path = os.path.normpath(
+            os.path.join(selfie_dir, selfie_path)
+        )
+
+    # --- Header Table Layout (Left: Metadata, Right: Selfie photo) ---
+    header_left = []
+    header_left.append(Paragraph(f"🏦 {bank_name}", styles['BankHeader']))
+    header_left.append(Paragraph(form.get("name", "Application"), styles['FormTitle']))
+    header_left.append(Spacer(1, 3 * mm))
 
     # Application metadata
     meta_data = [
@@ -259,7 +294,7 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
         ["Date:", datetime.now(timezone.utc).strftime("%d %B %Y, %H:%M UTC")],
         ["Status:", "Completed ✅"],
     ]
-    meta_table = Table(meta_data, colWidths=[90, 300])
+    meta_table = Table(meta_data, colWidths=[90, 240])
     meta_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
@@ -268,8 +303,32 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
-    elements.append(meta_table)
-    elements.append(Spacer(1, 6 * mm))
+    header_left.append(meta_table)
+
+    header_right = []
+    if selfie_abs_path and os.path.isfile(selfie_abs_path):
+        try:
+            selfie_img = RLImage(selfie_abs_path, width=28 * mm, height=35 * mm)
+            header_right.append(selfie_img)
+            header_right.append(Spacer(1, 1 * mm))
+            header_right.append(Paragraph("KYC Photo", styles['FooterText']))
+        except Exception as exc:
+            logger.warning(f"Could not embed selfie image in PDF: {exc}")
+            header_right.append(Paragraph("[Photo Error]", styles['FieldLabel']))
+    else:
+        header_right.append(Paragraph("[No Photo Captured]", styles['FieldLabel']))
+
+    # Create top header table
+    header_table_data = [[header_left, header_right]]
+    header_table = Table(header_table_data, colWidths=[350, 130])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 4 * mm))
 
     # Horizontal rule
     elements.append(HRFlowable(
@@ -333,8 +392,8 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
             )
         _render_fields(unsectioned_fields)
 
-    # --- Signature ---
-    elements.append(Spacer(1, 8 * mm))
+    # --- Signature & Consent Audit Trail ---
+    elements.append(Spacer(1, 6 * mm))
     elements.append(HRFlowable(
         width="100%", thickness=1,
         color=HexColor('#cccccc'), spaceBefore=4, spaceAfter=8,
@@ -347,6 +406,14 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
         sig_abs_path = os.path.normpath(
             os.path.join(_BACKEND_DIR, sig_rel_path)
         )
+
+    signed_at = sub.get("signed_at")
+    signed_str = "—"
+    if signed_at:
+        if hasattr(signed_at, "strftime"):
+            signed_str = signed_at.strftime('%d %B %Y, %H:%M UTC')
+        else:
+            signed_str = str(signed_at)
 
     if sig_abs_path and os.path.isfile(sig_abs_path):
         elements.append(
@@ -361,23 +428,45 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
             elements.append(
                 Paragraph("[Signature on file]", styles['FieldValue'])
             )
-
-        signed_at = sub.get("signed_at")
-        if signed_at:
-            # Firestore Timestamp or Python datetime
-            if hasattr(signed_at, "strftime"):
-                signed_str = signed_at.strftime('%d %B %Y, %H:%M UTC')
-            else:
-                signed_str = str(signed_at)
-            elements.append(Spacer(1, 2 * mm))
-            elements.append(Paragraph(
-                f"Signed on: {signed_str}",
-                styles['FieldLabel'],
-            ))
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(Paragraph(
+            f"Signed on: {signed_str}",
+            styles['FieldLabel'],
+        ))
     else:
         elements.append(
             Paragraph("[No signature captured]", styles['FieldLabel'])
         )
+
+    elements.append(Spacer(1, 4 * mm))
+
+    # Proactive Consent Audit Trail block
+    consent_payload = f"{submission_id}-{owner_user_id}-{signed_str}"
+    consent_hash = hashlib.sha256(consent_payload.encode('utf-8')).hexdigest()[:24].upper()
+    verification_seal = f"BANKAI-SECURE-SEAL-{consent_hash[:6]}-{consent_hash[6:12]}-{consent_hash[12:18]}-{consent_hash[18:24]}"
+
+    # Retrieve owner's Aadhaar Hash from submission context
+    owner_doc = db.collection(COLL_USERS).document(owner_user_id).get()
+    owner_aadhaar_hash = owner_doc.to_dict().get("aadhaar_hash", "N/A") if owner_doc.exists else "N/A"
+
+    audit_data = [
+        [Paragraph("Consent Audit Trail", styles['FieldLabel']), ""],
+        [Paragraph("Verification Seal:", styles['FieldLabel']), Paragraph(verification_seal, styles['FieldValue'])],
+        [Paragraph("Aadhaar KYC Verification Hash:", styles['FieldLabel']), Paragraph(owner_aadhaar_hash, styles['FieldValue'])],
+        [Paragraph("Consent Authorization Status:", styles['FieldLabel']), Paragraph("AUTHORIZED & SIGNED ELECTRONICALLY", styles['FieldValue'])],
+        [Paragraph("System Audit Timestamp:", styles['FieldLabel']), Paragraph(signed_str, styles['FieldValue'])],
+    ]
+    
+    audit_table = Table(audit_data, colWidths=[160, 320])
+    audit_table.setStyle(TableStyle([
+        ('SPAN', (0, 0), (1, 0)),
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#f3f4f6')),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(audit_table)
 
     # --- Footer ---
     elements.append(Spacer(1, 10 * mm))

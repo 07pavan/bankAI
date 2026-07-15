@@ -19,7 +19,7 @@ LLM Integration:
   backward compatibility).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import Optional
 from google.cloud.firestore import Client

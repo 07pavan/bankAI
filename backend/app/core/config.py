@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Deepgram
     DEEPGRAM_API_KEY: Optional[str] = None
     
+    # OCR.space
+    OCR_SPACE_API_KEY: str = "helloworld"
+    
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"

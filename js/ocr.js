@@ -13,16 +13,45 @@ const OCRModule = (() => {
      * @returns {Promise<string>}
      */
     async function recognize(imageDataUrl, onProgress, opts = {}) {
-        const tesseractConfig = {
-            logger: (info) => {
-                if (info.status === 'recognizing text' && onProgress) {
-                    onProgress(Math.round(info.progress * 100));
-                }
-            },
-        };
+        if (onProgress) onProgress(30);
 
-        const result = await Tesseract.recognize(imageDataUrl, 'eng', tesseractConfig);
-        return result.data.text;
+        try {
+            const res = await fetch('/api/v1/kyc/ocr-space', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ base64_image: imageDataUrl })
+            });
+
+            if (onProgress) onProgress(80);
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            if (onProgress) onProgress(100);
+            return data.text || '';
+        } catch (err) {
+            console.error('OCR.space request failed, falling back to local Tesseract.js:', err.message);
+
+            if (typeof Tesseract !== 'undefined') {
+                const tesseractConfig = {
+                    logger: (info) => {
+                        if (info.status === 'recognizing text' && onProgress) {
+                            onProgress(Math.round(info.progress * 100));
+                        }
+                    },
+                };
+                const result = await Tesseract.recognize(imageDataUrl, 'eng', tesseractConfig);
+                if (onProgress) onProgress(100);
+                return result.data.text;
+            } else {
+                throw err;
+            }
+        }
     }
 
     /**

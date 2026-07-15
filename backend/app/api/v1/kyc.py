@@ -104,3 +104,63 @@ def get_all_submissions(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Admin access required. This endpoint is not yet available.",
     )
+
+
+from pydantic import BaseModel
+
+class OCRSpaceRequest(BaseModel):
+    base64_image: str
+
+
+@router.post("/ocr-space")
+@limiter.limit("10/minute")
+async def ocr_space_scan(request: Request, req: OCRSpaceRequest):
+    """
+    Perform server-side OCR scan using OCR.space API.
+    Uses the configured OCR_SPACE_API_KEY, falling back to 'helloworld' testing key.
+    """
+    import httpx
+    from app.core.config import settings
+
+    api_key = settings.OCR_SPACE_API_KEY or "helloworld"
+    url = "https://api.ocr.space/parse/image"
+
+    payload = {
+        "apikey": api_key,
+        "base64Image": req.base64_image,
+        "language": "eng",
+        "detectOrientation": "true",
+        "scale": "true",
+        "isTable": "false"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, data=payload)
+
+        if response.status_code != 200:
+            logger.error(f"OCR.space API responded with status {response.status_code}: {response.text}")
+            raise HTTPException(status_code=500, detail="OCR service failed to respond")
+
+        res_data = response.json()
+
+        if res_data.get("IsErroredOnProcessing"):
+            error_msg = res_data.get("ErrorMessage") or "Unknown processing error"
+            logger.error(f"OCR.space processing error: {error_msg}")
+            raise HTTPException(status_code=400, detail=f"OCR processing failed: {error_msg}")
+
+        parsed_results = res_data.get("ParsedResults", [])
+        if not parsed_results:
+            return {"text": ""}
+
+        parsed_text = parsed_results[0].get("ParsedText", "")
+        return {"text": parsed_text}
+
+    except httpx.RequestError as exc:
+        logger.error(f"Connection to OCR.space failed: {exc}")
+        raise HTTPException(status_code=503, detail="Could not reach OCR service")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"OCR.space integration error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error during OCR")

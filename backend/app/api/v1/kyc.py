@@ -39,20 +39,25 @@ def submit_kyc(request: Request, req: KYCSubmitRequest):
             else "Welcome back! Login successful."
         )
 
+        from datetime import datetime, timezone
+        sub_id = submission["id"] if submission else "seeded-admin-sub"
+        sub_status = submission["status"] if submission else "verified"
+        sub_created = submission["created_at"] if submission else datetime.now(timezone.utc)
+
         logger.info(
             f"KYC submission successful - User: {user['id']}, "
-            f"Submission: {submission['id']}, New: {is_new_user}"
+            f"Submission: {sub_id}, New: {is_new_user}"
         )
 
         return KYCSubmitResponse(
-            id=submission["id"],
+            id=sub_id,
             user_id=user["id"],
-            status=submission["status"],
+            status=sub_status,
             message=message,
             access_token=access_token,
             token_type="bearer",
             is_new_user=is_new_user,
-            created_at=submission["created_at"],
+            created_at=sub_created,
         )
 
     except ValueError as e:

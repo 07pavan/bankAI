@@ -206,12 +206,16 @@ def conversation_next(
         f"user={user_id} llm_available={is_llm_available()}"
     )
 
-    turn = conversation_service.handle_conversation_turn(
-        submission_id=payload.submission_id,
-        user_id=user_id,
-        message=payload.message,
-        db=db,
-    )
+    try:
+        turn = conversation_service.handle_conversation_turn(
+            submission_id=payload.submission_id,
+            user_id=user_id,
+            message=payload.message,
+            db=db,
+        )
+    except Exception as exc:
+        logger.error(f"Error in conversation_next: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Backend Error: {str(exc)}")
 
     # Extract progress fields if available
     current_idx = None

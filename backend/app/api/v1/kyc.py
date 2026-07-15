@@ -60,7 +60,7 @@ def submit_kyc(request: Request, req: KYCSubmitRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"KYC submission error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Backend Error: {str(e)}")
 
 
 @router.get("/status/{submission_id}", response_model=KYCStatusResponse)

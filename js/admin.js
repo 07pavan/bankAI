@@ -8,18 +8,24 @@ const API = '/api/v1/admin';
 // ────────────────────────────────────────────────────────────────────────────
 // State
 // ────────────────────────────────────────────────────────────────────────────
-let adminToken = sessionStorage.getItem('adminToken');
+let adminToken = sessionStorage.getItem('bankai_token');  // Same token as user login
+let adminName = 'Admin';
 let allBanks = [];       // [{id, name, code, is_active}]
 let selectedFormId = null;
 let editingFormId = null;
 let editingFieldId = null;
+let editingBankId = null;
 let selectedFieldType = 'text';
 let currentSections = [];
 let currentFields = [];
 
-// Pagination
+// Submissions pagination
 let subSkip = 0;
 const subLimit = 20;
+
+// Audits pagination
+let auditSkip = 0;
+const auditLimit = 30;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Init
@@ -28,43 +34,69 @@ document.addEventListener('DOMContentLoaded', () => {
     if (adminToken) {
         tryBootstrap();
     } else {
-        document.getElementById('authOverlay').style.display = 'flex';
+        // No token at all — redirect to login
+        showAuthDenied('Please complete your login at the homepage first.');
     }
 });
 
 async function tryBootstrap() {
     try {
-        // Quick sanity — hit banks endpoint
-        const res = await apiFetch('/banks');
-        if (!res.ok) throw new Error('Unauthorized');
+        // Verify the token belongs to an admin via /admin/me
+        const meRes = await apiFetch('/me');
+        if (meRes.status === 403) {
+            showAuthDenied('Access denied — your account does not have admin privileges.');
+            return;
+        }
+        if (!meRes.ok) {
+            showAuthDenied('Session expired. Please log in again at the homepage.');
+            return;
+        }
+        const meData = await meRes.json();
+        adminName = meData.name || 'Admin';
+
+        // Admin verified — load the panel
+        const banksRes = await apiFetch('/banks');
+        if (!banksRes.ok) throw new Error('Could not load banks');
         document.getElementById('authOverlay').style.display = 'none';
         document.getElementById('appShell').style.display = 'flex';
-        allBanks = await res.json();
+        allBanks = await banksRes.json();
         renderBanks(allBanks);
         populateBankDropdowns();
-        document.getElementById('adminUserPill').textContent = '⬤ Admin';
+        document.getElementById('adminUserPill').textContent = `⬤ ${adminName}`;
     } catch (e) {
         adminToken = null;
-        sessionStorage.removeItem('adminToken');
-        document.getElementById('authOverlay').style.display = 'flex';
-        document.getElementById('authError').style.display = 'block';
-        document.getElementById('authError').textContent = 'Token expired or not admin. Please re-enter.';
+        sessionStorage.removeItem('bankai_token');
+        showAuthDenied('Session error. Please log in again at the homepage.');
     }
 }
 
-async function submitToken() {
-    const raw = document.getElementById('tokenInput').value.trim();
-    if (!raw) { showToast('Paste a JWT token first', 'error'); return; }
-    adminToken = raw;
-    sessionStorage.setItem('adminToken', raw);
-    document.getElementById('authError').style.display = 'none';
-    await tryBootstrap();
+function showAuthDenied(message) {
+    const overlay = document.getElementById('authOverlay');
+    const errEl = document.getElementById('authError');
+    overlay.style.display = 'flex';
+    errEl.style.display = 'block';
+    errEl.textContent = message;
+    // Hide the token paste form — replaced by redirect button
+    const tokenForm = document.getElementById('tokenForm');
+    if (tokenForm) tokenForm.style.display = 'none';
+    // Show a redirect button
+    const existing = document.getElementById('goLoginBtn');
+    if (!existing) {
+        const btn = document.createElement('a');
+        btn.id = 'goLoginBtn';
+        btn.href = '/index.html';
+        btn.className = 'btn-primary';
+        btn.style.cssText = 'display:inline-block;margin-top:1rem;padding:0.75rem 1.5rem;background:var(--accent-primary,#6366f1);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;';
+        btn.textContent = '→ Go to Login Page';
+        overlay.appendChild(btn);
+    }
 }
 
 function logout() {
     adminToken = null;
-    sessionStorage.removeItem('adminToken');
-    location.reload();
+    sessionStorage.removeItem('bankai_token');
+    sessionStorage.clear();
+    window.location.href = '/index.html';
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -85,7 +117,18 @@ function apiFetch(path, method = 'GET', body = null) {
 // ────────────────────────────────────────────────────────────────────────────
 // Tab management
 // ────────────────────────────────────────────────────────────────────────────
-const TAB_TITLES = { banks: 'Banks', forms: 'Forms', submissions: 'Submissions' };
+const TAB_TITLES = {
+    banks: 'Banks',
+    forms: 'Forms',
+    submissions: 'Submissions',
+    audits: 'Audit Logs',
+};
+const TAB_SUBTITLES = {
+    banks: 'Manage your banking infrastructure',
+    forms: 'Build and configure bank application forms',
+    submissions: 'View all user form submissions',
+    audits: 'Full audit trail of all admin actions',
+};
 
 function showTab(name) {
     document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
@@ -93,10 +136,12 @@ function showTab(name) {
     document.getElementById(`tab-${name}`).classList.add('active');
     document.getElementById(`nav-${name}`).classList.add('active');
     document.getElementById('pageTitle').textContent = TAB_TITLES[name];
+    document.getElementById('pageSubtitle').textContent = TAB_SUBTITLES[name] || '';
 
     if (name === 'banks') loadBanks();
     if (name === 'forms') loadForms();
     if (name === 'submissions') loadSubmissions();
+    if (name === 'audits') { auditSkip = 0; loadAuditStats(); loadAudits(); }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -118,11 +163,13 @@ function renderBanks(banks) {
     }
     tbody.innerHTML = banks.map(b => `
     <tr>
-      <td><span style="color:var(--muted);font-family:monospace">#${b.id}</span></td>
+      <td><span style="color:var(--muted);font-family:monospace">#${b.id.slice(0,8)}…</span></td>
       <td><strong>${esc(b.name)}</strong></td>
       <td><code style="background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:6px;font-size:.85rem">${esc(b.code)}</code></td>
       <td>${statusBadge(b.is_active)}</td>
-      <td>—</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="openEditBankModal('${b.id}','${esc(b.name)}',${b.is_active})" title="Edit bank">✏️ Edit</button>
+      </td>
     </tr>
   `).join('');
 }
@@ -137,6 +184,33 @@ async function createBank() {
     closeModal('bankModal');
     document.getElementById('bankName').value = '';
     document.getElementById('bankCode').value = '';
+    await loadBanks();
+}
+
+// Bank Edit modal
+function openEditBankModal(id, name, isActive) {
+    editingBankId = id;
+    document.getElementById('editBankName').value = name;
+    document.getElementById('editBankActive').checked = isActive;
+    openModal('bankEditModal');
+}
+
+async function saveBankEdit() {
+    if (!editingBankId) return;
+    const name = document.getElementById('editBankName').value.trim();
+    const is_active = document.getElementById('editBankActive').checked;
+    if (!name) { showToast('Bank name required', 'error'); return; }
+    // Use the forms PUT path pattern — banks don't have a dedicated PATCH in the current API,
+    // so we POST a workaround via the forms update endpoint.  Instead, call the correct endpoint:
+    const res = await apiFetch(`/banks/${editingBankId}`, 'PUT', { name, is_active });
+    if (!res.ok) {
+        // If the backend doesn't have a bank update endpoint yet, inform the user.
+        const e = await res.json().catch(() => ({ detail: `HTTP ${res.status} — bank update endpoint not yet available.` }));
+        showToast(e.detail || 'Failed to update bank', 'error');
+        return;
+    }
+    showToast('Bank updated!', 'success');
+    closeModal('bankEditModal');
     await loadBanks();
 }
 
@@ -174,13 +248,13 @@ function renderForms(forms) {
     const bankMap = Object.fromEntries(allBanks.map(b => [b.id, b.name]));
     tbody.innerHTML = forms.map(f => `
     <tr class="clickable" onclick="selectForm('${f.id}', '${esc(f.name)}', '${esc(f.code)}')">
-      <td><span style="color:var(--muted);font-family:monospace">#${f.id}</span></td>
+      <td><span style="color:var(--muted);font-family:monospace">#${f.id.slice(0,8)}…</span></td>
       <td>${esc(bankMap[f.bank_id] || '—')}</td>
       <td><strong>${esc(f.name)}</strong></td>
       <td><code style="background:rgba(255,255,255,.06);padding:.2rem .5rem;border-radius:6px;font-size:.82rem">${esc(f.code)}</code></td>
       <td>${statusBadge(f.is_active)}</td>
       <td onclick="event.stopPropagation()">
-        <button class="btn btn-secondary btn-sm" onclick="openEditFormModal('${f.id}','${esc(f.name)}','${esc(f.description || '')}',${f.is_active})">Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditFormModal('${f.id}','${esc(f.name)}','${esc(f.description || '')}',${f.is_active})">✏️ Edit</button>
       </td>
     </tr>
   `).join('');
@@ -594,8 +668,8 @@ function renderSubmissions(subs) {
     const stateColor = { welcome: 'purple', select_application: 'blue', filling_form: 'yellow', review: 'yellow', complete: 'green', chat: 'blue' };
     tbody.innerHTML = subs.map(s => `
     <tr>
-      <td><span style="color:var(--muted);font-family:monospace">#${s.id}</span></td>
-      <td><span style="font-family:monospace;font-size:.85rem">U${s.user_id}</span></td>
+      <td><span style="color:var(--muted);font-family:monospace">#${s.id.slice(0,8)}…</span></td>
+      <td><span style="font-family:monospace;font-size:.85rem">U${String(s.user_id).slice(0,8)}…</span></td>
       <td>${esc(s.bank_name || '—')}</td>
       <td>${esc(s.form_name || '—')}</td>
       <td>${s.status === 'completed' ? '<span class="badge badge-green">Completed</span>' : '<span class="badge badge-yellow">Draft</span>'}</td>
@@ -644,6 +718,116 @@ function prevPage() { if (subSkip > 0) { subSkip = Math.max(0, subSkip - subLimi
 function nextPage() { subSkip += subLimit; loadSubmissions(); }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Audit Logs
+// ────────────────────────────────────────────────────────────────────────────
+
+async function loadAuditStats() {
+    try {
+        const res = await apiFetch('/audits/stats');
+        if (!res.ok) return;
+        const stats = await res.json();
+        renderAuditStats(stats);
+    } catch (e) {
+        // Stats card area stays empty — non-critical
+    }
+}
+
+function renderAuditStats(stats) {
+    const row = document.getElementById('auditStatsRow');
+    const actionIcons = { create: '✨', update: '✏️', toggle: '🔄', delete: '🗑️' };
+    const entityIcons = { bank: '🏛️', form: '📋', section: '📁', field: '🔧' };
+
+    let html = `
+        <div class="audit-stat-card">
+            <div class="audit-stat-value">${stats.total}</div>
+            <div class="audit-stat-label">Total Events</div>
+        </div>
+    `;
+
+    // By action
+    for (const [action, count] of Object.entries(stats.by_action)) {
+        html += `
+            <div class="audit-stat-card">
+                <div class="audit-stat-value">${count}</div>
+                <div class="audit-stat-label">${actionIcons[action] || '📌'} ${capitalize(action)}</div>
+            </div>
+        `;
+    }
+
+    // By entity
+    for (const [entity, count] of Object.entries(stats.by_entity)) {
+        html += `
+            <div class="audit-stat-card" style="border-color: rgba(var(--accent-rgb, 99,102,241), 0.25);">
+                <div class="audit-stat-value">${count}</div>
+                <div class="audit-stat-label">${entityIcons[entity] || '📦'} ${capitalize(entity)}s</div>
+            </div>
+        `;
+    }
+
+    row.innerHTML = html;
+}
+
+async function loadAudits() {
+    const entityType = document.getElementById('auditEntityFilter').value;
+    const action = document.getElementById('auditActionFilter').value;
+
+    let path = `/audits?skip=${auditSkip}&limit=${auditLimit}`;
+    if (entityType) path += `&entity_type=${entityType}`;
+    if (action) path += `&action=${action}`;
+
+    const res = await apiFetch(path);
+    if (!res.ok) return handleError(res);
+    const logs = await res.json();
+    renderAudits(logs);
+
+    document.getElementById('auditPrevBtn').disabled = auditSkip === 0;
+    document.getElementById('auditNextBtn').disabled = logs.length < auditLimit;
+    document.getElementById('auditPageInfo').textContent = `Showing ${logs.length} entries · Offset ${auditSkip}`;
+}
+
+function renderAudits(logs) {
+    const tbody = document.getElementById('auditsBody');
+    if (!logs.length) {
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">🔍</div>No audit logs yet. Admin actions will appear here.</div></td></tr>';
+        return;
+    }
+
+    const actionBadge = {
+        create: 'badge-green',
+        update: 'badge-blue',
+        toggle: 'badge-yellow',
+        delete: 'badge-red',
+    };
+    const entityIcon = { bank: '🏛️', form: '📋', section: '📁', field: '🔧' };
+
+    tbody.innerHTML = logs.map(log => {
+        const badgeCls = actionBadge[log.action] || 'badge-blue';
+        const icon = entityIcon[log.entity_type] || '📦';
+        const details = log.details && Object.keys(log.details).length
+            ? Object.entries(log.details)
+                .map(([k, v]) => `<span class="audit-detail-chip">${esc(k)}: <strong>${esc(String(v))}</strong></span>`)
+                .join(' ')
+            : '<span style="color:var(--muted);font-size:.8rem">—</span>';
+
+        return `
+        <tr>
+          <td style="font-size:.82rem;color:var(--muted);white-space:nowrap">${log.created_at ? log.created_at.slice(0,19).replace('T',' ') : '—'}</td>
+          <td><span style="font-family:monospace;font-size:.8rem;color:var(--muted)">${esc(String(log.actor_id).slice(0,8))}…</span></td>
+          <td><span class="badge ${badgeCls}">${esc(log.action)}</span></td>
+          <td><span style="font-size:.85rem">${icon} ${esc(log.entity_type)}</span></td>
+          <td><strong style="font-size:.88rem">${esc(log.entity_name)}</strong></td>
+          <td style="font-size:.8rem">${details}</td>
+        </tr>
+      `;
+    }).join('');
+}
+
+function auditPrevPage() {
+    if (auditSkip > 0) { auditSkip = Math.max(0, auditSkip - auditLimit); loadAudits(); }
+}
+function auditNextPage() { auditSkip += auditLimit; loadAudits(); }
+
+// ────────────────────────────────────────────────────────────────────────────
 // Modal helpers
 // ────────────────────────────────────────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -677,6 +861,11 @@ function statusBadge(isActive) {
     return isActive
         ? '<span class="badge badge-green">● Active</span>'
         : '<span class="badge badge-red">● Inactive</span>';
+}
+
+function capitalize(str) {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 async function handleError(res) {

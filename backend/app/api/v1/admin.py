@@ -7,17 +7,19 @@ Routes are registered under /api/v1/admin/ in main.py.
 Firestore edition:
 - No SQLAlchemy Session dependency — admin_service uses get_db() internally.
 - All IDs are Firestore string document IDs (str), not ints.
+- All mutation endpoints now capture actor_id from the JWT for audit logging.
 """
 
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
-from app.core.security import require_admin_user
+from app.core.security import require_admin_user, get_current_user_id
 from app.core.logging import get_logger
 from app.services import admin_service
+from app.services import audit_service
 from app.schemas import (
     # Banks
-    BankCreate, BankAdminOut,
+    BankCreate, BankUpdate, BankAdminOut,
     # Forms
     FormCreate, FormUpdate, FormAdminOut,
     # Sections
@@ -26,6 +28,8 @@ from app.schemas import (
     FieldCreate, FieldUpdate, FieldAdminOut,
     # Submissions
     AdminSubmissionListItem, AdminSubmissionDetail,
+    # Audit
+    AuditLogItem, AuditStats,
 )
 
 logger = get_logger()
@@ -33,8 +37,31 @@ router = APIRouter()
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Identity verification — GET /admin/me
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/me")
+def get_admin_me(
+    current_user: dict = Depends(require_admin_user),
+):
+    """
+    Verify that the caller is an admin and return their profile.
+
+    Used by admin.js on page load to authenticate before showing
+    the admin panel. Returns 403 if the user is not an admin.
+    """
+    return {
+        "id": current_user.get("id"),
+        "name": current_user.get("name", "Admin"),
+        "role": current_user.get("role"),
+        "email": current_user.get("email"),
+    }
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Banks
 # ────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/banks", response_model=list[BankAdminOut])
 def list_banks(
@@ -47,11 +74,27 @@ def list_banks(
 @router.post("/banks", response_model=BankAdminOut, status_code=201)
 def create_bank(
     payload: BankCreate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Create a new bank."""
-    return admin_service.create_bank(payload.name, payload.code)
+    return admin_service.create_bank(payload.name, payload.code, actor_id=actor_id)
 
+
+@router.put("/banks/{bank_id}", response_model=BankAdminOut)
+def update_bank(
+    bank_id: str,
+    payload: BankUpdate,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Update a bank's name and/or active status."""
+    return admin_service.update_bank(
+        bank_id=bank_id,
+        name=payload.name,
+        is_active=payload.is_active,
+        actor_id=actor_id,
+    )
 
 # ────────────────────────────────────────────────────────────────────────────
 # Forms
@@ -69,6 +112,7 @@ def list_forms(
 @router.post("/forms", response_model=FormAdminOut, status_code=201)
 def create_form(
     payload: FormCreate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Create a new form under a bank."""
@@ -77,6 +121,7 @@ def create_form(
         name=payload.name,
         code=payload.code,
         description=payload.description,
+        actor_id=actor_id,
     )
 
 
@@ -84,6 +129,7 @@ def create_form(
 def update_form(
     form_id: str,
     payload: FormUpdate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Update a form's metadata (name, description, is_active)."""
@@ -92,6 +138,7 @@ def update_form(
         name=payload.name,
         description=payload.description,
         is_active=payload.is_active,
+        actor_id=actor_id,
     )
 
 
@@ -112,6 +159,7 @@ def list_sections(
 def create_section(
     form_id: str,
     payload: SectionCreate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Create a new section within a form."""
@@ -119,6 +167,7 @@ def create_section(
         form_id=form_id,
         name=payload.name,
         order_index=payload.order_index,
+        actor_id=actor_id,
     )
 
 
@@ -139,6 +188,7 @@ def list_fields(
 def create_field(
     form_id: str,
     payload: FieldCreate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Create a new field within a form."""
@@ -152,6 +202,7 @@ def create_field(
         section_id=payload.section_id,
         validation_rule=payload.validation_rule,
         options=payload.options,
+        actor_id=actor_id,
     )
 
 
@@ -159,6 +210,7 @@ def create_field(
 def update_field(
     field_id: str,
     payload: FieldUpdate,
+    actor_id: str = Depends(get_current_user_id),
     _admin=Depends(require_admin_user),
 ):
     """Update a form field's properties."""
@@ -171,6 +223,7 @@ def update_field(
         is_active=payload.is_active,
         validation_rule=payload.validation_rule,
         options=payload.options,
+        actor_id=actor_id,
     )
 
 
@@ -198,3 +251,35 @@ def get_submission(
 ):
     """Get full detail of a single submission including all answered fields."""
     return admin_service.get_submission_detail(submission_id)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Audit Logs
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/audits", response_model=list[AuditLogItem])
+def list_audits(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    entity_type: Optional[str] = Query(None, description="Filter: bank | form | section | field"),
+    action: Optional[str] = Query(None, description="Filter: create | update | delete | toggle"),
+    _admin=Depends(require_admin_user),
+):
+    """
+    Return admin audit log entries, newest first.
+    Supports optional filters by entity_type and action.
+    """
+    return audit_service.list_audit_logs(
+        skip=skip,
+        limit=limit,
+        entity_type=entity_type,
+        action=action,
+    )
+
+
+@router.get("/audits/stats", response_model=AuditStats)
+def get_audit_stats(
+    _admin=Depends(require_admin_user),
+):
+    """Return aggregate audit counts grouped by action and entity type."""
+    return audit_service.get_audit_stats()

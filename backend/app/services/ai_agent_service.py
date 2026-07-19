@@ -393,8 +393,7 @@ def _build_rag_context(
       - REVIEW → form summary (for readback support)
       - COMPLETE → None (no context needed)
 
-    Uses a scoped DB session via app_db.SessionLocal() (lazy import
-    pattern compatible with test fixtures).
+    All RAG functions use get_db() (Firestore) internally when no db is passed.
 
     Args:
         state:        Current AgentState dict.
@@ -407,42 +406,38 @@ def _build_rag_context(
     parts: list[str] = []
 
     try:
-        db = app_db.SessionLocal()
-        try:
-            if conv_state in (
-                ConversationState.CHAT,
-                ConversationState.WELCOME,
-                ConversationState.SELECT_APPLICATION,
-            ):
-                # Provide form overview so LLM can describe available services
-                summary = get_all_forms_summary(db)
-                if summary:
-                    parts.append(summary)
+        # RAG functions call get_db() (Firestore) internally when no db is passed
+        if conv_state in (
+            ConversationState.CHAT,
+            ConversationState.WELCOME,
+            ConversationState.SELECT_APPLICATION,
+        ):
+            # Provide form overview so LLM can describe available services
+            summary = get_all_forms_summary()
+            if summary:
+                parts.append(summary)
 
-            elif conv_state == ConversationState.FILLING_FORM:
-                form_id = state.get("form_id")
-                current_field = state.get("current_field")
+        elif conv_state == ConversationState.FILLING_FORM:
+            form_id = state.get("form_id")
+            current_field = state.get("current_field")
 
-                if form_id and current_field:
-                    # Detailed context for the specific field being asked
-                    field_ctx = get_field_context(form_id, current_field, db)
-                    if field_ctx:
-                        parts.append(field_ctx)
-                elif form_id:
-                    # Full form structure if no specific field yet
-                    form_ctx = get_form_context(form_id, db)
-                    if form_ctx:
-                        parts.append(form_ctx)
+            if form_id and current_field:
+                # Detailed context for the specific field being asked
+                field_ctx = get_field_context(form_id, current_field)
+                if field_ctx:
+                    parts.append(field_ctx)
+            elif form_id:
+                # Full form structure if no specific field yet
+                form_ctx = get_form_context(form_id)
+                if form_ctx:
+                    parts.append(form_ctx)
 
-            elif conv_state == ConversationState.REVIEW:
-                form_id = state.get("form_id")
-                if form_id:
-                    form_ctx = get_form_context(form_id, db)
-                    if form_ctx:
-                        parts.append(form_ctx)
-
-        finally:
-            db.close()
+        elif conv_state == ConversationState.REVIEW:
+            form_id = state.get("form_id")
+            if form_id:
+                form_ctx = get_form_context(form_id)
+                if form_ctx:
+                    parts.append(form_ctx)
 
         # Always try to add relevant FAQ context
         if user_message:
@@ -459,6 +454,7 @@ def _build_rag_context(
         return None
 
     return "\n\n".join(parts)
+
 
 # ─────────────────────────────────────────────────────────────────────
 
@@ -662,20 +658,18 @@ def review_node(state: AgentState) -> dict:
 
             if submission_id and user_id:
                 try:
-                    from app.models import Submission
-                    db = app_db.SessionLocal()
-                    try:
-                        sub = db.query(Submission).filter(Submission.id == submission_id).first()
-                        if sub:
-                            sub.conversation_state = ConversationState.SIGNATURE
-                            db.commit()
-                            logger.info(
-                                f"review_node: submission {submission_id} "
-                                f"transitioned to SIGNATURE by user={user_id}"
-                            )
-                    finally:
-                        db.close()
-
+                    from app.database import get_db as _get_firestore
+                    from app.models import COLL_SUBMISSIONS
+                    from datetime import datetime, timezone
+                    _db = _get_firestore()
+                    _db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+                        "conversation_state": ConversationState.SIGNATURE,
+                        "updated_at": datetime.now(timezone.utc),
+                    })
+                    logger.info(
+                        f"review_node: submission {submission_id} "
+                        f"transitioned to SIGNATURE by user={user_id}"
+                    )
                     new_state_updates["conversation_state"] = ConversationState.SIGNATURE
                     new_state_updates["messages"] = [
                         AIMessage(content=(
@@ -696,24 +690,21 @@ def review_node(state: AgentState) -> dict:
                     ]
 
         elif user_words & reject_words:
-            # User wants to change — reset to FILLING_FORM
+            # User wants to change — reset to FILLING_FORM from field 0
             submission_id = state.get("submission_id")
             if submission_id:
                 try:
-                    from app.models import Submission
-                    db = app_db.SessionLocal()
-                    try:
-                        sub = db.query(Submission).filter(
-                            Submission.id == submission_id
-                        ).first()
-                        if sub:
-                            sub.conversation_state = ConversationState.FILLING_FORM
-                            sub.current_field_index = 0
-                            db.commit()
-                    finally:
-                        db.close()
+                    from app.database import get_db as _get_firestore
+                    from app.models import COLL_SUBMISSIONS
+                    from datetime import datetime, timezone
+                    _db = _get_firestore()
+                    _db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+                        "conversation_state": ConversationState.FILLING_FORM,
+                        "current_field_index": 0,
+                        "updated_at": datetime.now(timezone.utc),
+                    })
                 except Exception as exc:
-                    logger.error(f"review_node: reset failed: {exc}")
+                    logger.error(f"review_node: reset to FILLING_FORM failed: {exc}")
 
             new_state_updates["conversation_state"] = ConversationState.FILLING_FORM
             new_state_updates["current_field"] = None
@@ -761,26 +752,35 @@ def complete_node(state: AgentState) -> dict:
 def signature_node(state: AgentState) -> dict:
     """
     SIGNATURE state — waits for the user to provide their signature via the frontend.
-    If the signature is already provided (checked against DB), auto-completes.
+    If the signature is already provided (checked against Firestore), auto-completes.
     """
     submission_id = state.get("submission_id")
     user_id = state.get("user_id")
 
     if submission_id and user_id:
         try:
-            from app.models import Submission
+            from app.database import get_db as _get_firestore
+            from app.models import COLL_SUBMISSIONS
             from app.services import submission_service
-            db = app_db.SessionLocal()
-            try:
-                sub = db.query(Submission).filter(Submission.id == submission_id).first()
-                if sub and sub.signed_at and sub.signature_path:
-                    # Already signed, move to complete
-                    completed = submission_service.complete_submission(
-                        sub.id, user_id, db
+            from datetime import datetime, timezone
+
+            _db = _get_firestore()
+            sub_doc = _db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+
+            if sub_doc.exists:
+                sub_data = sub_doc.to_dict()
+                # Check if user has already signed via the frontend signature pad
+                if sub_data.get("signed_at") and sub_data.get("signature_path"):
+                    # Already signed — mark COMPLETE in Firestore and return success
+                    _db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+                        "conversation_state": ConversationState.COMPLETE,
+                        "status": "completed",
+                        "updated_at": datetime.now(timezone.utc),
+                    })
+                    logger.info(
+                        f"signature_node: submission {submission_id} "
+                        f"already signed — transitioning to COMPLETE"
                     )
-                    completed.conversation_state = ConversationState.COMPLETE
-                    db.commit()
-                    
                     return {
                         "messages": [
                             AIMessage(content=(
@@ -792,12 +792,10 @@ def signature_node(state: AgentState) -> dict:
                         "conversation_state": ConversationState.COMPLETE,
                         "error": None,
                     }
-            finally:
-                db.close()
         except Exception as exc:
-            logger.error(f"signature_node: {exc}")
+            logger.error(f"signature_node: Firestore check failed: {exc}")
 
-    # Not signed yet
+    # Not signed yet — prompt the user to use the signature pad
     return {
         "messages": [
             AIMessage(content=(

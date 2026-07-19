@@ -203,9 +203,48 @@ def conversation_next(
     """
     logger.info(
         f"Conversation turn: submission={payload.submission_id} "
-        f"user={user_id} llm_available={is_llm_available()}"
+        f"user={user_id} llm_available={is_llm_available()} "
+        f"message={'__start__' if payload.message == '__start__' else '[user input]'}"
     )
 
+    # ── __start__ special case ─────────────────────────────────────────────
+    # The frontend sends "__start__" as the first turn after a submission is
+    # created.  We only need to read the first field — no writes, no LLM call.
+    # Bypassing handle_conversation_turn avoids the compound-query crash that
+    # comes from trying to save "__start__" as a field value.
+    if payload.message == "__start__":
+        try:
+            from app.services import submission_service, form_service
+            sub = submission_service.get_submission(payload.submission_id, user_id)
+            field = submission_service.get_current_field(payload.submission_id)
+            total = len(form_service.get_ordered_active_fields(sub.get("form_id", "")))
+            if field:
+                question = (
+                    f"Let's begin! {field.get('label', 'Please answer the first field')}. "
+                )
+                if field.get("field_type") in ("select", "radio") and field.get("options"):
+                    opts = ", ".join(str(o) for o in field["options"])
+                    question += f"Options: {opts}."
+                elif field.get("field_type") == "number":
+                    rule = field.get("validation_rule") or {}
+                    if "min" in rule and "max" in rule:
+                        question += f"(Between {rule['min']} and {rule['max']})"
+            else:
+                question = "All fields are ready for review. Say 'confirm' to submit or 'change' to edit."
+
+            return ConversationNextResponse(
+                next_question=question,
+                field_key=field.get("field_key") if field else None,
+                status="in_progress",
+                current_field_index=sub.get("current_field_index", 0),
+                total_fields=total,
+                conversation_state=sub.get("conversation_state"),
+            )
+        except Exception as exc:
+            logger.error(f"__start__ init failed: {exc}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Could not load form: {str(exc)}")
+
+    # ── Normal conversation turn ───────────────────────────────────────────
     try:
         turn = conversation_service.handle_conversation_turn(
             submission_id=payload.submission_id,

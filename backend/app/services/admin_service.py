@@ -7,6 +7,7 @@ Provides all business logic for the admin panel:
   - FormSection CRUD
   - FormField CRUD
   - Submission read (admin view, no ownership restriction)
+  - Audit log write-through for all mutations
 
 All IDs are Firestore string document IDs.
 All functions raise HTTPException on errors.
@@ -21,8 +22,10 @@ from app.database import get_db
 from app.models import (
     COLL_BANKS, COLL_FORMS, COLL_FORM_SECTIONS,
     COLL_FORM_FIELDS, COLL_SUBMISSIONS, COLL_SUBMISSION_DATA,
+    COLL_AUDIT_LOGS,
 )
 from app.core.logging import get_logger
+from app.services import audit_service
 
 logger = get_logger()
 
@@ -42,7 +45,7 @@ def list_banks() -> list[dict]:
     return [_doc_to_dict(d) for d in docs]
 
 
-def create_bank(name: str, code: str) -> dict:
+def create_bank(name: str, code: str, actor_id: str = "system") -> dict:
     """
     Create a new bank.
 
@@ -70,7 +73,58 @@ def create_bank(name: str, code: str) -> dict:
     }
     ref.set(data)
     logger.info(f"Admin created bank: {code}")
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="create",
+        entity_type="bank",
+        entity_id=ref.id,
+        entity_name=name.strip(),
+        details={"code": code},
+    )
     return {"id": ref.id, **data}
+
+
+def update_bank(
+    bank_id: str,
+    name: Optional[str],
+    is_active: Optional[bool],
+    actor_id: str = "system",
+) -> dict:
+    """
+    Update a bank's name and/or active status.
+
+    Raises:
+        HTTPException 404: Bank not found.
+    """
+    db = get_db()
+    bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+    if not bank_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Bank {bank_id} not found",
+        )
+
+    old = bank_doc.to_dict()
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
+    if name is not None:
+        updates["name"] = name.strip()
+    if is_active is not None:
+        updates["is_active"] = is_active
+
+    db.collection(COLL_BANKS).document(bank_id).update(updates)
+    logger.info(f"Admin updated bank {bank_id}")
+    action = "toggle" if is_active is not None and name is None else "update"
+    audit_service.log_action(
+        actor_id=actor_id,
+        action=action,
+        entity_type="bank",
+        entity_id=bank_id,
+        entity_name=updates.get("name") or old.get("name", bank_id),
+        details={k: v for k, v in updates.items() if k != "updated_at"},
+    )
+    updated = db.collection(COLL_BANKS).document(bank_id).get()
+    return _doc_to_dict(updated)
+
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +159,7 @@ def create_form(
     name: str,
     code: str,
     description: Optional[str],
+    actor_id: str = "system",
 ) -> dict:
     """
     Create a new form under a bank.
@@ -148,6 +203,14 @@ def create_form(
     }
     ref.set(data)
     logger.info(f"Admin created form: '{code}' for bank {bank_id}")
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="create",
+        entity_type="form",
+        entity_id=ref.id,
+        entity_name=name.strip(),
+        details={"bank_id": bank_id, "code": code},
+    )
     return {"id": ref.id, **data}
 
 
@@ -156,6 +219,7 @@ def update_form(
     name: Optional[str],
     description: Optional[str],
     is_active: Optional[bool],
+    actor_id: str = "system",
 ) -> dict:
     """
     Update a form's metadata.
@@ -171,6 +235,7 @@ def update_form(
             detail=f"Form {form_id} not found",
         )
 
+    old = form_doc.to_dict()
     updates: dict = {"updated_at": datetime.now(timezone.utc)}
     if name is not None:
         updates["name"] = name.strip()
@@ -181,6 +246,15 @@ def update_form(
 
     db.collection(COLL_FORMS).document(form_id).update(updates)
     logger.info(f"Admin updated form {form_id}")
+    action = "toggle" if is_active is not None and name is None else "update"
+    audit_service.log_action(
+        actor_id=actor_id,
+        action=action,
+        entity_type="form",
+        entity_id=form_id,
+        entity_name=updates.get("name") or old.get("name", form_id),
+        details={k: v for k, v in updates.items() if k != "updated_at"},
+    )
     updated = db.collection(COLL_FORMS).document(form_id).get()
     return _doc_to_dict(updated)
 
@@ -190,19 +264,20 @@ def update_form(
 # ---------------------------------------------------------------------------
 
 def list_sections(form_id: str) -> list[dict]:
-    """Return all sections for a form, ordered by order_index."""
+    """Return all sections for a form, ordered by order_index (sorted in memory to avoid index requirement)."""
     _assert_form_exists(form_id)
     db = get_db()
     docs = (
         db.collection(COLL_FORM_SECTIONS)
         .where("form_id", "==", form_id)
-        .order_by("order_index")
         .stream()
     )
-    return [_doc_to_dict(d) for d in docs]
+    sections = [_doc_to_dict(d) for d in docs]
+    sections.sort(key=lambda s: s.get("order_index", 0))
+    return sections
 
 
-def create_section(form_id: str, name: str, order_index: int) -> dict:
+def create_section(form_id: str, name: str, order_index: int, actor_id: str = "system") -> dict:
     """
     Create a new section within a form.
 
@@ -219,6 +294,14 @@ def create_section(form_id: str, name: str, order_index: int) -> dict:
     }
     ref.set(data)
     logger.info(f"Admin created section '{name}' in form {form_id}")
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="create",
+        entity_type="section",
+        entity_id=ref.id,
+        entity_name=name.strip(),
+        details={"form_id": form_id, "order_index": order_index},
+    )
     return {"id": ref.id, **data}
 
 
@@ -227,16 +310,17 @@ def create_section(form_id: str, name: str, order_index: int) -> dict:
 # ---------------------------------------------------------------------------
 
 def list_fields(form_id: str) -> list[dict]:
-    """Return all fields for a form, ordered by order_index."""
+    """Return all fields for a form, ordered by order_index (sorted in memory to avoid index requirement)."""
     _assert_form_exists(form_id)
     db = get_db()
     docs = (
         db.collection(COLL_FORM_FIELDS)
         .where("form_id", "==", form_id)
-        .order_by("order_index")
         .stream()
     )
-    return [_doc_to_dict(d) for d in docs]
+    fields = [_doc_to_dict(d) for d in docs]
+    fields.sort(key=lambda f: f.get("order_index", 0))
+    return fields
 
 
 def create_field(
@@ -249,6 +333,7 @@ def create_field(
     section_id: Optional[str],
     validation_rule: Optional[Any],
     options: Optional[Any],
+    actor_id: str = "system",
 ) -> dict:
     """
     Create a new field within a form.
@@ -304,6 +389,14 @@ def create_field(
     }
     ref.set(data)
     logger.info(f"Admin created field '{field_key}' in form {form_id}")
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="create",
+        entity_type="field",
+        entity_id=ref.id,
+        entity_name=label.strip(),
+        details={"form_id": form_id, "field_key": field_key, "field_type": field_type},
+    )
     return {"id": ref.id, **data}
 
 
@@ -316,6 +409,7 @@ def update_field(
     is_active: Optional[bool],
     validation_rule: Optional[Any],
     options: Optional[Any],
+    actor_id: str = "system",
 ) -> dict:
     """
     Update a form field.
@@ -331,6 +425,7 @@ def update_field(
             detail=f"Field {field_id} not found",
         )
 
+    old = field_doc.to_dict()
     updates: dict = {}
     if label is not None:
         updates["label"] = label.strip()
@@ -350,6 +445,15 @@ def update_field(
     if updates:
         db.collection(COLL_FORM_FIELDS).document(field_id).update(updates)
     logger.info(f"Admin updated field {field_id}")
+    action = "toggle" if is_active is not None and label is None else "update"
+    audit_service.log_action(
+        actor_id=actor_id,
+        action=action,
+        entity_type="field",
+        entity_id=field_id,
+        entity_name=old.get("label", field_id),
+        details={k: v for k, v in updates.items()},
+    )
     updated = db.collection(COLL_FORM_FIELDS).document(field_id).get()
     return _doc_to_dict(updated)
 

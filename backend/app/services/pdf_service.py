@@ -133,16 +133,18 @@ def generate_pdf(submission_id: str, user_id: str) -> str:
             detail="Access denied to this submission.",
         )
 
-    # --- Load user's KYC details (e.g. selfie path) ---
+    # --- Load user's KYC details (e.g. selfie path, sorted in memory to avoid composite index requirement) ---
     owner_user_id = sub.get("user_id")
     kyc_docs = (
         db.collection(COLL_KYC_SUBMISSIONS)
         .where("user_id", "==", owner_user_id)
-        .order_by("created_at", direction="DESCENDING")
-        .limit(1)
         .stream()
     )
-    kyc_doc = next(kyc_docs, None)
+    kyc_docs_list = list(kyc_docs)
+    kyc_doc = None
+    if kyc_docs_list:
+        kyc_docs_list.sort(key=lambda d: d.to_dict().get("created_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        kyc_doc = kyc_docs_list[0]
     selfie_path = None
     if kyc_doc:
         selfie_path = kyc_doc.to_dict().get("selfie_path")

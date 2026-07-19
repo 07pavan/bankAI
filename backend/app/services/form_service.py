@@ -26,20 +26,21 @@ def _doc_to_dict(doc) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_active_banks() -> list[dict]:
-    """Return all active banks, ordered by name."""
+    """Return all active banks, ordered by name (sorted in memory)."""
     db = get_db()
     docs = (
         db.collection(COLL_BANKS)
         .where("is_active", "==", True)
-        .order_by("name")
         .stream()
     )
-    return [_doc_to_dict(d) for d in docs]
+    banks = [_doc_to_dict(d) for d in docs]
+    banks.sort(key=lambda x: x.get("name", "").lower())
+    return banks
 
 
 def get_active_forms(bank_id: str) -> list[dict]:
     """
-    Return all active forms for a given bank.
+    Return all active forms for a given bank (sorted in memory).
 
     Raises:
         ValueError: If the bank does not exist or is inactive.
@@ -53,17 +54,17 @@ def get_active_forms(bank_id: str) -> list[dict]:
         db.collection(COLL_FORMS)
         .where("bank_id", "==", bank_id)
         .where("is_active", "==", True)
-        .order_by("name")
         .stream()
     )
     forms = [_doc_to_dict(d) for d in docs]
+    forms.sort(key=lambda x: x.get("name", "").lower())
     logger.info(f"Fetched {len(forms)} active forms for bank_id={bank_id}")
     return forms
 
 
 def get_form_structure(form_id: str) -> Optional[dict]:
     """
-    Return a form dict with its sections and all active fields, ordered correctly.
+    Return a form dict with its sections and all active fields, ordered correctly (sorted in memory).
 
     Returns dict with keys:
       id, bank_id, name, code, description, sections (list), fields (flat list)
@@ -80,11 +81,10 @@ def get_form_structure(form_id: str) -> Optional[dict]:
         logger.warning(f"Form {form_id} is inactive")
         return None
 
-    # Load sections
+    # Load sections (sorted in memory by order_index)
     section_docs = (
         db.collection(COLL_FORM_SECTIONS)
         .where("form_id", "==", form_id)
-        .order_by("order_index")
         .stream()
     )
     sections_by_id: dict[str, dict] = {}
@@ -95,12 +95,14 @@ def get_form_structure(form_id: str) -> Optional[dict]:
         sections_by_id[s["id"]] = s
         sections_list.append(s)
 
-    # Load active fields
+    # Sort sections in memory by order_index
+    sections_list.sort(key=lambda s: s.get("order_index", 0))
+
+    # Load active fields (sorted in memory by order_index)
     field_docs = (
         db.collection(COLL_FORM_FIELDS)
         .where("form_id", "==", form_id)
         .where("is_active", "==", True)
-        .order_by("order_index")
         .stream()
     )
     flat_fields: list[dict] = []
@@ -111,6 +113,11 @@ def get_form_structure(form_id: str) -> Optional[dict]:
         sec_id = f.get("section_id")
         if sec_id and sec_id in sections_by_id:
             sections_by_id[sec_id]["fields"].append(f)
+
+    # Sort fields inside each section and flat fields in memory by order_index
+    flat_fields.sort(key=lambda f: f.get("order_index", 0))
+    for s in sections_list:
+        s["fields"].sort(key=lambda f: f.get("order_index", 0))
 
     form["sections"] = sections_list
     form["fields"] = flat_fields
@@ -124,7 +131,7 @@ def get_form_structure(form_id: str) -> Optional[dict]:
 
 def get_ordered_active_fields(form_id: str) -> list[dict]:
     """
-    Return only active fields for a form, sorted by order_index.
+    Return only active fields for a form, sorted by order_index (sorted in memory).
     Used by SubmissionService to determine current_field_index boundaries.
     """
     db = get_db()
@@ -132,7 +139,8 @@ def get_ordered_active_fields(form_id: str) -> list[dict]:
         db.collection(COLL_FORM_FIELDS)
         .where("form_id", "==", form_id)
         .where("is_active", "==", True)
-        .order_by("order_index")
         .stream()
     )
-    return [_doc_to_dict(d) for d in docs]
+    fields = [_doc_to_dict(d) for d in docs]
+    fields.sort(key=lambda x: x.get("order_index", 0))
+    return fields

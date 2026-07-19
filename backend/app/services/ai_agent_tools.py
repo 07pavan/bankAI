@@ -101,15 +101,18 @@ def get_kyc_status(user_id: str) -> str:
         db = get_db()
         from app.models import COLL_KYC_SUBMISSIONS
 
-        # Get the latest KYC submission for this user from Firestore
+        # Get the latest KYC submission for this user from Firestore (sorted in memory to avoid index requirement)
         kyc_docs = (
             db.collection(COLL_KYC_SUBMISSIONS)
             .where("user_id", "==", user_id)
-            .order_by("created_at", direction="DESCENDING")
-            .limit(1)
             .stream()
         )
-        kyc_doc = next(kyc_docs, None)
+        kyc_docs_list = list(kyc_docs)
+        kyc_doc = None
+        if kyc_docs_list:
+            from datetime import datetime, timezone
+            kyc_docs_list.sort(key=lambda d: d.to_dict().get("created_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+            kyc_doc = kyc_docs_list[0]
 
         if not kyc_doc:
             return "No KYC submission found for this user."

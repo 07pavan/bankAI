@@ -68,16 +68,20 @@ def submit_kyc(
         user_data = {"id": existing_user_doc.id, **existing_user_doc.to_dict()}
         logger.info(f"Existing user detected with Aadhaar hash: {aadhaar_hash[:8]}...")
 
-        # Get the most recent KYC submission for this user
+        # Get the most recent KYC submission for this user (sort in memory to avoid composite index requirement)
         kyc_docs = (
             db.collection(COLL_KYC_SUBMISSIONS)
             .where("user_id", "==", existing_user_doc.id)
-            .order_by("created_at", direction="DESCENDING")
-            .limit(1)
             .stream()
         )
-        kyc_doc = next(kyc_docs, None)
-        kyc_data = {"id": kyc_doc.id, **kyc_doc.to_dict()} if kyc_doc else None
+        kyc_docs_list = list(kyc_docs)
+        if kyc_docs_list:
+            # Sort by created_at descending. If created_at is missing, sort it last.
+            kyc_docs_list.sort(key=lambda d: d.to_dict().get("created_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+            kyc_doc = kyc_docs_list[0]
+            kyc_data = {"id": kyc_doc.id, **kyc_doc.to_dict()}
+        else:
+            kyc_data = None
         return user_data, kyc_data, False
 
     # New user — encrypt and persist

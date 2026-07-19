@@ -263,12 +263,14 @@ def complete_submission(submission_id: str, user_id: str) -> dict:
 
 
 def get_user_submissions(user_id: str) -> list[dict]:
-    """Return all submissions for a user, newest first."""
+    """Return all submissions for a user, newest first (sorted in memory to avoid composite index requirement)."""
     db = get_db()
     docs = (
         db.collection(COLL_SUBMISSIONS)
         .where("user_id", "==", user_id)
-        .order_by("created_at", direction="DESCENDING")
         .stream()
     )
-    return [{"id": d.id, **d.to_dict()} for d in docs]
+    docs_list = [{"id": d.id, **d.to_dict()} for d in docs]
+    # Sort by created_at descending. Use datetime.min as fallback if created_at is missing.
+    docs_list.sort(key=lambda d: d.get("created_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return docs_list

@@ -93,19 +93,19 @@ class AgentState(TypedDict):
         conversation_state: Current BankAI state-machine state.
                             The supervisor reads this to pick the next node.
                             Only validated transitions are accepted.
-        user_id:            Authenticated user ID (injected at entry).
-        submission_id:      Active submission PK (None before form selection).
+        user_id:            Authenticated user ID (str — Firestore uses string UIDs).
+        submission_id:      Active submission Firestore doc ID (None before form selection).
         current_field:      The field_key the agent is currently asking about.
-        form_id:            Selected form PK (set during SELECT_APPLICATION).
+        form_id:            Selected form Firestore doc ID (set during SELECT_APPLICATION).
         error:              Last error message, if any (cleared on success).
     """
 
     messages: Annotated[Sequence[BaseMessage], add_messages]
     conversation_state: str
-    user_id: int
-    submission_id: Optional[int]
+    user_id: str                    # Firestore string UID
+    submission_id: Optional[str]    # Firestore doc ID or None
     current_field: Optional[str]
-    form_id: Optional[int]
+    form_id: Optional[str]          # Firestore doc ID or None
     error: Optional[str]
 
 
@@ -136,9 +136,9 @@ class AgentAction(BaseModel):
             "'change_requested', 'completed', 'greeting', 'help'."
         ),
     )
-    detected_form_id: Optional[int] = Field(
+    detected_form_id: Optional[str] = Field(
         default=None,
-        description="Form ID detected from user's selection intent.",
+        description="Form Firestore doc ID detected from user's selection intent.",
     )
     detected_field_key: Optional[str] = Field(
         default=None,
@@ -1048,12 +1048,12 @@ def recompile_graph() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def invoke_agent(
-    user_id: int,
+    user_id: str,
     user_message: str,
     conversation_state: str = ConversationState.CHAT,
-    submission_id: Optional[int] = None,
+    submission_id: Optional[str] = None,
     current_field: Optional[str] = None,
-    form_id: Optional[int] = None,
+    form_id: Optional[str] = None,
     thread_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """

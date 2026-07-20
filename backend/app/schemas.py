@@ -221,6 +221,12 @@ class BankCreate(BaseModel):
     code: str
 
 
+class BankUpdate(BaseModel):
+    """Partial update for a bank."""
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class BankAdminOut(BaseModel):
     """Full bank representation for admin."""
     id: str
@@ -341,3 +347,28 @@ class AdminSubmissionDetail(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     data: list[AdminSubmissionDataItem] = []
+
+
+# ---------------------------------------------------------------------------
+# Audit Log schemas
+# ---------------------------------------------------------------------------
+
+class AuditLogItem(BaseModel):
+    """A single audit log entry."""
+    id: str
+    actor_id: str
+    actor_role: str
+    action: str          # "create" | "update" | "delete" | "toggle"
+    entity_type: str     # "bank" | "form" | "section" | "field"
+    entity_id: str
+    entity_name: str
+    details: Optional[Any] = None
+    created_at: Optional[str] = None
+
+
+class AuditStats(BaseModel):
+    """Aggregate counts for the audit log summary cards."""
+    total: int
+    by_action: dict
+    by_entity: dict
+

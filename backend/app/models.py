@@ -81,3 +81,6 @@ COLL_FORM_SECTIONS = "form_sections"
 COLL_FORM_FIELDS = "form_fields"
 COLL_SUBMISSIONS = "submissions"
 COLL_SUBMISSION_DATA = "submission_data"
+COLL_AUDIT_LOGS = "audit_logs"
+#  audit_logs/ {id, actor_id, actor_role, action, entity_type,
+#               entity_id, entity_name, details, created_at}

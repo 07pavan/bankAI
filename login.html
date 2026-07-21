@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BankAI — Sign In</title>
+  <meta name="description" content="Sign in to BankAI with your Aadhaar number to access your banking services." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+
+  <style>
+    /* ── Page layout ── */
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-primary);
+      font-family: 'Inter', sans-serif;
+      padding: 1.5rem;
+    }
+
+    /* ── Ambient orbs ── */
+    .ambient-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.18;
+      animation: orbFloat 8s ease-in-out infinite;
+    }
+    .orb-1 { width: 420px; height: 420px; background: radial-gradient(circle, #818cf8, transparent); top: -100px; left: -80px; animation-delay: 0s; }
+    .orb-2 { width: 380px; height: 380px; background: radial-gradient(circle, #34d399, transparent); bottom: -100px; right: -80px; animation-delay: -4s; }
+    .orb-3 { width: 300px; height: 300px; background: radial-gradient(circle, #a78bfa, transparent); top: 50%; left: 50%; transform: translate(-50%,-50%); animation-delay: -2s; }
+    @keyframes orbFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(20px, -20px) scale(1.05); }
+    }
+
+    /* ── Card ── */
+    .login-card {
+      position: relative;
+      z-index: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1.5rem;
+      padding: 2.75rem 2.5rem 2.25rem;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.04);
+      animation: cardIn .45s cubic-bezier(.34,1.56,.64,1) both;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(24px) scale(.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Logo ── */
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      margin-bottom: 2rem;
+      justify-content: center;
+    }
+    .logo-icon { font-size: 2rem; }
+    .logo-text {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      letter-spacing: -.04em;
+    }
+    .logo-accent { color: var(--accent); }
+
+    /* ── Heading ── */
+    .login-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      text-align: center;
+      margin-bottom: .5rem;
+    }
+    .login-sub {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .9rem;
+      margin-bottom: 2rem;
+    }
+
+    /* ── Tab switcher ── */
+    .tab-row {
+      display: flex;
+      background: var(--surface-raised);
+      border-radius: .75rem;
+      padding: .25rem;
+      gap: .25rem;
+      margin-bottom: 2rem;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: .6rem 1rem;
+      border: none;
+      background: transparent;
+      border-radius: .55rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: .875rem;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .tab-btn.active {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(129,140,248,.35);
+    }
+
+    /* ── Input group ── */
+    .field-group { margin-bottom: 1.5rem; }
+    .field-label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: .45rem;
+    }
+    .field-input {
+      width: 100%;
+      background: var(--surface-raised);
+      border: 1.5px solid var(--border);
+      border-radius: .75rem;
+      padding: .8rem 1rem;
+      color: var(--text-primary);
+      font-size: 1rem;
+      font-family: inherit;
+      transition: border-color .2s, box-shadow .2s;
+      box-sizing: border-box;
+    }
+    .field-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(129,140,248,.18);
+    }
+    .field-input::placeholder { color: var(--text-muted); }
+    .field-input.invalid {
+      border-color: var(--accent-danger);
+      box-shadow: 0 0 0 3px rgba(248,113,113,.15);
+    }
+
+    /* ── OTP boxes ── */
+    .otp-row {
+      display: flex;
+      gap: .65rem;
+      justify-content: center;
+    }
+    .otp-box {
+      width: 56px;
+      height: 62px;
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: var(--surface-raised);
+      border: 1.5px solid var(--border);
+      border-radius: .75rem;
+      color: var(--text-primary);
+      font-family: inherit;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .otp-box:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(129,140,248,.18);
+    }
+    .otp-box.filled { border-color: var(--accent); }
+    .otp-box.invalid { border-color: var(--accent-danger); }
+
+    /* ── Buttons ── */
+    .btn-login {
+      width: 100%;
+      padding: .9rem;
+      background: linear-gradient(135deg, var(--accent) 0%, #6d28d9 100%);
+      color: #fff;
+      border: none;
+      border-radius: .9rem;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      transition: opacity .2s, transform .15s;
+      box-shadow: 0 4px 16px rgba(129,140,248,.35);
+      margin-top: .5rem;
+    }
+    .btn-login:hover:not(:disabled) { opacity: .92; transform: translateY(-1px); }
+    .btn-login:active:not(:disabled) { transform: translateY(0); }
+    .btn-login:disabled { opacity: .5; cursor: not-allowed; }
+    .spinner-sm {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Divider ── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin: 1.5rem 0;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .divider span { color: var(--text-muted); font-size: .8rem; }
+
+    /* ── KYC link ── */
+    .kyc-link {
+      text-align: center;
+      font-size: .88rem;
+      color: var(--text-muted);
+    }
+    .kyc-link a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .kyc-link a:hover { text-decoration: underline; }
+
+    /* ── Error banner ── */
+    .error-banner {
+      background: rgba(248, 113, 113, .12);
+      border: 1px solid rgba(248, 113, 113, .3);
+      border-radius: .75rem;
+      padding: .75rem 1rem;
+      color: var(--accent-danger, #f87171);
+      font-size: .875rem;
+      margin-bottom: 1.25rem;
+      display: none;
+    }
+    .error-banner.show { display: block; }
+
+    /* ── Success banner ── */
+    .success-banner {
+      background: rgba(52, 211, 153, .12);
+      border: 1px solid rgba(52, 211, 153, .3);
+      border-radius: .75rem;
+      padding: .75rem 1rem;
+      color: #34d399;
+      font-size: .875rem;
+      margin-bottom: 1.25rem;
+      display: none;
+    }
+    .success-banner.show { display: block; }
+
+    /* ── Demo badge ── */
+    .demo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      background: rgba(251, 191, 36, .15);
+      border: 1px solid rgba(251, 191, 36, .3);
+      border-radius: 999px;
+      padding: .3rem .75rem;
+      font-size: .75rem;
+      font-weight: 600;
+      color: #fbbf24;
+      margin-bottom: 1.5rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="ambient-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="login-card" role="main">
+
+    <!-- Logo -->
+    <div class="logo">
+      <span class="logo-icon">🏦</span>
+      <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
+    </div>
+
+    <h1 class="login-title">Welcome Back</h1>
+    <p class="login-sub">Sign in to access your banking services</p>
+
+    <!-- Tab switcher: Aadhaar vs Demo -->
+    <div class="tab-row" role="tablist">
+      <button class="tab-btn active" id="tab-aadhaar" role="tab" aria-selected="true" onclick="switchTab('aadhaar')">
+        🪪 Aadhaar Login
+      </button>
+      <button class="tab-btn" id="tab-demo" role="tab" aria-selected="false" onclick="switchTab('demo')">
+        🚀 Demo Login
+      </button>
+    </div>
+
+    <!-- Error / success banners -->
+    <div class="error-banner" id="errorBanner" role="alert"></div>
+    <div class="success-banner" id="successBanner" role="status"></div>
+
+    <!-- ── Aadhaar tab ── -->
+    <div id="pane-aadhaar">
+      <div class="field-group">
+        <label class="field-label" for="phoneInput">Mobile Number</label>
+        <input type="tel" class="field-input" id="phoneInput"
+          placeholder="10-digit mobile number linked to your account"
+          maxlength="10" inputmode="numeric" autocomplete="tel" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Last 4 digits of Aadhaar</label>
+        <div class="otp-row" id="otpRow" aria-label="Enter last 4 digits of Aadhaar">
+          <input type="text" class="otp-box" id="otp0" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 1" />
+          <input type="text" class="otp-box" id="otp1" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 2" />
+          <input type="text" class="otp-box" id="otp2" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 3" />
+          <input type="text" class="otp-box" id="otp3" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 4" />
+        </div>
+      </div>
+
+      <button class="btn-login" id="btnLogin" onclick="loginWithAadhaar()">
+        Sign In →
+      </button>
+    </div>
+
+    <!-- ── Demo tab ── -->
+    <div id="pane-demo" style="display:none">
+      <div class="demo-badge">⚡ Demo Mode — skips identity verification</div>
+      <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1.5rem;line-height:1.6;">
+        In demo mode, you'll be logged in as the first KYC-verified user in the system.
+        Perfect for testing the AI agent and form filling flows without real Aadhaar data.
+      </p>
+      <button class="btn-login" id="btnDemo" onclick="loginDemo()">
+        🚀 Enter Demo Dashboard
+      </button>
+    </div>
+
+    <div class="divider"><span>or</span></div>
+
+    <div class="kyc-link">
+      New user? <a href="/index.html">Complete KYC to get started →</a>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/api.js"></script>
+  <script>
+    // ── Auto-redirect if already logged in ──────────────────────────────────
+    (async () => {
+      const token = BankAI_API.getToken();
+      if (token) {
+        const user = await BankAI_API.verifySession();
+        if (user) {
+          window.location.href = '/dashboard.html';
+          return;
+        }
+      }
+    })();
+
+    // ── Tab switching ────────────────────────────────────────────────────────
+    function switchTab(tab) {
+      document.getElementById('pane-aadhaar').style.display = tab === 'aadhaar' ? 'block' : 'none';
+      document.getElementById('pane-demo').style.display    = tab === 'demo'    ? 'block' : 'none';
+      document.getElementById('tab-aadhaar').classList.toggle('active', tab === 'aadhaar');
+      document.getElementById('tab-demo').classList.toggle('active', tab === 'demo');
+      clearBanners();
+    }
+
+    // ── OTP box auto-focus ───────────────────────────────────────────────────
+    const otpBoxes = [
+      document.getElementById('otp0'),
+      document.getElementById('otp1'),
+      document.getElementById('otp2'),
+      document.getElementById('otp3'),
+    ];
+
+    otpBoxes.forEach((box, i) => {
+      box.addEventListener('input', () => {
+        box.value = box.value.replace(/[^0-9]/g, '');
+        box.classList.toggle('filled', !!box.value);
+        box.classList.remove('invalid');
+        if (box.value && i < 3) otpBoxes[i + 1].focus();
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !box.value && i > 0) {
+          otpBoxes[i - 1].focus();
+        }
+        if (e.key === 'Enter') loginWithAadhaar();
+      });
+      box.addEventListener('paste', (e) => {
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '');
+        if (pasted.length >= 4) {
+          otpBoxes.forEach((b, j) => {
+            b.value = pasted[j] || '';
+            b.classList.toggle('filled', !!b.value);
+          });
+          otpBoxes[3].focus();
+          e.preventDefault();
+        }
+      });
+    });
+
+    // ── Banners ──────────────────────────────────────────────────────────────
+    function showError(msg) {
+      const el = document.getElementById('errorBanner');
+      el.textContent = '⚠️ ' + msg;
+      el.classList.add('show');
+      document.getElementById('successBanner').classList.remove('show');
+    }
+    function showSuccess(msg) {
+      const el = document.getElementById('successBanner');
+      el.textContent = '✅ ' + msg;
+      el.classList.add('show');
+      document.getElementById('errorBanner').classList.remove('show');
+    }
+    function clearBanners() {
+      document.getElementById('errorBanner').classList.remove('show');
+      document.getElementById('successBanner').classList.remove('show');
+    }
+
+    // ── Set button loading state ─────────────────────────────────────────────
+    function setLoading(btnId, loading, label = 'Sign In →') {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      btn.innerHTML = loading
+        ? '<div class="spinner-sm"></div> Signing in…'
+        : label;
+    }
+
+    // ── Aadhaar login ────────────────────────────────────────────────────────
+    async function loginWithAadhaar() {
+      clearBanners();
+      const last4 = otpBoxes.map(b => b.value).join('');
+
+      // Validate
+      let hasError = false;
+      otpBoxes.forEach(b => {
+        if (!b.value || !/\d/.test(b.value)) {
+          b.classList.add('invalid');
+          hasError = true;
+        }
+      });
+      if (hasError) {
+        showError('Please enter all 4 digits of your Aadhaar number.');
+        return;
+      }
+
+      setLoading('btnLogin', true);
+      try {
+        const data = await BankAI_API.login(last4, false);
+        showSuccess(data.message || 'Login successful! Redirecting…');
+        setTimeout(() => { window.location.href = '/dashboard.html'; }, 1200);
+      } catch (err) {
+        showError(err.message || 'Login failed. Please try again.');
+        otpBoxes.forEach(b => b.classList.add('invalid'));
+      } finally {
+        setLoading('btnLogin', false, 'Sign In →');
+      }
+    }
+
+    // ── Demo login ───────────────────────────────────────────────────────────
+    async function loginDemo() {
+      clearBanners();
+      setLoading('btnDemo', true, '🚀 Enter Demo Dashboard');
+      try {
+        const data = await BankAI_API.login('', true);
+        showSuccess('Demo login successful! Entering dashboard…');
+        setTimeout(() => { window.location.href = '/dashboard.html'; }, 1000);
+      } catch (err) {
+        showError(err.message || 'Demo login failed — no users found. Complete KYC first.');
+      } finally {
+        setLoading('btnDemo', false, '🚀 Enter Demo Dashboard');
+      }
+    }
+
+    // Auto-focus first OTP box
+    document.getElementById('otp0').focus();
+  </script>
+</body>
+
+</html>

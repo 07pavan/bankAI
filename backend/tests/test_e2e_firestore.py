@@ -383,3 +383,104 @@ def test_submissions_drafting_and_answering():
     assert len(details["data"]) == 1
     assert details["data"][0]["field_key"] == "mobile"
     assert details["data"][0]["value"] == "9876543210"
+
+
+def test_audit_log_tracking():
+    """
+    Test Audit Log System:
+    1. Create a bank via API — should generate an audit entry
+    2. Create a form — should generate another audit entry
+    3. GET /audits should return both entries
+    4. GET /audits/stats should return correct totals
+    5. Filter by entity_type works correctly
+    """
+    token = create_admin_user()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Create a bank
+    bank_resp = client.post(
+        "/api/v1/admin/banks",
+        headers=headers,
+        json={"name": "Audit Test Bank", "code": "ATB"}
+    )
+    assert bank_resp.status_code == 201
+    bank_id = bank_resp.json()["id"]
+
+    # Create a form
+    form_resp = client.post(
+        "/api/v1/admin/forms",
+        headers=headers,
+        json={"bank_id": bank_id, "name": "Audit Form", "code": "audit_form"}
+    )
+    assert form_resp.status_code == 201
+
+    # GET /audits — should have 2 entries
+    audits_resp = client.get("/api/v1/admin/audits", headers=headers)
+    assert audits_resp.status_code == 200
+    logs = audits_resp.json()
+    assert len(logs) >= 2
+    actions = [l["action"] for l in logs]
+    assert "create" in actions
+    entity_types = {l["entity_type"] for l in logs}
+    assert "bank" in entity_types
+    assert "form" in entity_types
+
+    # Filter by entity_type=bank
+    bank_audits_resp = client.get(
+        "/api/v1/admin/audits?entity_type=bank",
+        headers=headers
+    )
+    assert bank_audits_resp.status_code == 200
+    bank_logs = bank_audits_resp.json()
+    assert all(l["entity_type"] == "bank" for l in bank_logs)
+
+    # GET /audits/stats
+    stats_resp = client.get("/api/v1/admin/audits/stats", headers=headers)
+    assert stats_resp.status_code == 200
+    stats = stats_resp.json()
+    assert stats["total"] >= 2
+    assert "create" in stats["by_action"]
+    assert stats["by_action"]["create"] >= 2
+
+
+def test_bank_update():
+    """
+    Test PUT /api/v1/admin/banks/{bank_id}:
+    1. Create a bank
+    2. Update its name and set is_active=False
+    3. Verify the update was persisted
+    4. Verify an audit entry was created
+    """
+    token = create_admin_user()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Create
+    bank_resp = client.post(
+        "/api/v1/admin/banks",
+        headers=headers,
+        json={"name": "Original Bank", "code": "OBK"}
+    )
+    assert bank_resp.status_code == 201
+    bank_id = bank_resp.json()["id"]
+
+    # Update
+    update_resp = client.put(
+        f"/api/v1/admin/banks/{bank_id}",
+        headers=headers,
+        json={"name": "Updated Bank", "is_active": False}
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.json()
+    assert updated["name"] == "Updated Bank"
+    assert updated["is_active"] is False
+
+    # Verify audit entry for the update
+    audits_resp = client.get(
+        f"/api/v1/admin/audits?entity_type=bank&action=update",
+        headers=headers
+    )
+    assert audits_resp.status_code == 200
+    update_logs = audits_resp.json()
+    assert len(update_logs) >= 1
+    assert update_logs[0]["entity_type"] == "bank"
+

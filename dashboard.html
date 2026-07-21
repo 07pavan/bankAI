@@ -70,6 +70,9 @@
         </div>
 
         <!-- AI CHAT PANEL -->
+        <!-- Session restore banner (shown if in-progress form detected) -->
+        <div id="restoreBanner" style="display:none"></div>
+
         <div class="section-title">AI Banking Assistant</div>
         <div class="ai-panel" id="aiPanel" role="main">
 
@@ -136,6 +139,20 @@
                 <button class="btn-send" id="btnSend" aria-label="Send message" title="Send">
                     ▶
                 </button>
+            </div>
+        </div>
+
+        <!-- My Applications -->
+        <div class="section-title">My Applications</div>
+        <div class="applications-panel" id="applicationsPanel">
+            <div class="apps-header">
+                <h3>📋 Your Submissions</h3>
+                <span style="font-size:.8rem;color:var(--text-muted)" id="appsCount">Loading…</span>
+            </div>
+            <div class="apps-list" id="appsList">
+                <!-- skeleton -->
+                <div class="skeleton-item"></div>
+                <div class="skeleton-item"></div>
             </div>
         </div>
 

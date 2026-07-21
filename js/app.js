@@ -368,7 +368,6 @@
         };
 
         try {
-            // Use centralized API client (includes auth header if token exists)
             const res = await BankAI_API.request(BankAI_API.ENDPOINTS.KYC_SUBMIT, {
                 method: 'POST',
                 body: payload,
@@ -392,7 +391,13 @@
             sessionStorage.setItem('bankai_pan', kycData.pan || '—');
             if (kycData.selfie) sessionStorage.setItem('bankai_selfie', kycData.selfie);
 
-            // Auto navigate to dashboard after a short delay for success animation
+            // Store last-4 of aadhaar for future logins (returning user)
+            const raw = kycData.aadhaar || '';
+            const digitsOnly = raw.replace(/\s/g, '');
+            if (digitsOnly.length >= 4) {
+                sessionStorage.setItem('bankai_aadhaar_last4', digitsOnly.slice(-4));
+            }
+
             BankAI_Toast.success('KYC Submitted Successfully! Opening Dashboard...');
             setTimeout(() => {
                 window.location.href = '/dashboard.html';
@@ -401,10 +406,15 @@
         } catch (err) {
             console.warn('Backend submission failed (offline mode):', err.message);
             BankAI_Toast.warning('Could not reach server — running in demo mode.');
-            // Still allow navigation in offline/demo mode
+
+            // Offer login page as alternative
+            const dashBtn2 = document.getElementById('go-to-dashboard');
+            dashBtn2.disabled = false;
+            dashBtn2.innerHTML = 'Open Dashboard (Demo) →';
+
             setTimeout(() => {
                 window.location.href = '/dashboard.html';
-            }, 1500);
+            }, 2000);
         }
 
         dashBtn.disabled = false;

@@ -61,6 +61,9 @@
     <button class="nav-btn" id="nav-submissions" onclick="showTab('submissions')">
       <span class="nav-icon">📊</span> Submissions
     </button>
+    <button class="nav-btn" id="nav-audits" onclick="showTab('audits')">
+      <span class="nav-icon">🔍</span> Audit Logs
+    </button>
 
     <div class="sidebar-footer">
       <div class="admin-user-pill" id="adminUserPill">Admin ●</div>
@@ -73,7 +76,7 @@
     <div class="topbar">
       <div>
         <h1 id="pageTitle">Banks</h1>
-        <div style="font-size:.85rem;color:var(--muted);margin-top:.2rem">Manage your banking infrastructure</div>
+        <div style="font-size:.85rem;color:var(--muted);margin-top:.2rem" id="pageSubtitle">Manage your banking infrastructure</div>
       </div>
       <div class="topbar-right">
         <div class="online-badge">System Online</div>
@@ -91,7 +94,7 @@
           <table id="banksTable">
             <thead>
               <tr>
-                <th>ID</th><th>Name</th><th>Code</th><th>Status</th><th>Action</th>
+                <th>ID</th><th>Name</th><th>Code</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="banksBody">
@@ -181,6 +184,62 @@
         <div id="submissionDetailBody"></div>
       </div>
     </div>
+
+    <!-- ── AUDIT LOGS TAB ── -->
+    <div class="tab-pane" id="tab-audits">
+
+      <!-- Stats cards -->
+      <div id="auditStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Audit Log</span>
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;">
+            <!-- Entity filter -->
+            <select class="form-select" id="auditEntityFilter" onchange="loadAudits()" style="font-size:.82rem;padding:.35rem .7rem;">
+              <option value="">All Types</option>
+              <option value="bank">Banks</option>
+              <option value="form">Forms</option>
+              <option value="section">Sections</option>
+              <option value="field">Fields</option>
+            </select>
+            <!-- Action filter -->
+            <select class="form-select" id="auditActionFilter" onchange="loadAudits()" style="font-size:.82rem;padding:.35rem .7rem;">
+              <option value="">All Actions</option>
+              <option value="create">Create</option>
+              <option value="update">Update</option>
+              <option value="toggle">Toggle</option>
+              <option value="delete">Delete</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="loadAudits()">↻ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Type</th>
+                <th>Entity</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="auditsBody">
+              <tr><td colspan="6"><div class="empty"><div class="spin"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Pagination -->
+        <div style="display:flex;gap:.5rem;margin-top:1rem;align-items:center;">
+          <button class="btn btn-secondary btn-sm" id="auditPrevBtn" onclick="auditPrevPage()">← Prev</button>
+          <span id="auditPageInfo" style="font-size:.85rem;color:var(--muted)"></span>
+          <button class="btn btn-secondary btn-sm" id="auditNextBtn" onclick="auditNextPage()">Next →</button>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -204,6 +263,30 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('bankModal')">Cancel</button>
       <button class="btn btn-primary" onclick="createBank()">Create Bank</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Bank Modal -->
+<div class="modal-overlay" id="bankEditModal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2>✏️ Edit Bank</h2>
+      <button class="modal-close" onclick="closeModal('bankEditModal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Bank Name</label>
+      <input type="text" class="form-input" id="editBankName" placeholder="e.g. HDFC Bank" />
+    </div>
+    <div class="form-group">
+      <label>
+        <input type="checkbox" id="editBankActive" style="margin-right:.4rem" />
+        Active (visible to users)
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('bankEditModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBankEdit()">Save Changes</button>
     </div>
   </div>
 </div>

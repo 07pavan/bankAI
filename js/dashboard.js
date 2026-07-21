@@ -5,10 +5,10 @@
 'use strict';
 
 (function initDashboard() {
-    // ── Auth verification ──────────────────────────────────────────────────────
+    // ── Auth verification + Session restore ───────────────────────────────────
     const token = BankAI_API.getToken();
     if (!token) {
-        window.location.href = '/index.html';
+        window.location.href = '/login.html';
         return;
     }
 
@@ -1037,18 +1037,14 @@
     function initData() {
         const rawAadhaar = sessionStorage.getItem('bankai_aadhaar_masked') || '';
         let aadhaar = 'XXXX XXXX ----';
-        if (rawAadhaar) {
-            // Check if it has 12/14 characters
-            aadhaar = rawAadhaar;
-        }
-        
-        // Mask PAN securely (keep only last 4 digits visible)
+        if (rawAadhaar) aadhaar = rawAadhaar;
+
         const rawPan = sessionStorage.getItem('bankai_pan') || '';
         let pan = '----------';
         if (rawPan && rawPan.length >= 10) {
             pan = `XXXXXX${rawPan.substring(6)}`;
         }
-        
+
         const selfie = sessionStorage.getItem('bankai_selfie');
 
         document.getElementById('dash-aadhaar').textContent = aadhaar;
@@ -1059,8 +1055,6 @@
             const img = document.getElementById('selfie-avatar');
             img.src = selfie;
             img.style.display = 'block';
-            
-            // SECURITY: Clear raw selfie from sessionStorage now that it's loaded to reduce PII footprint
             sessionStorage.removeItem('bankai_selfie');
         }
 
@@ -1069,24 +1063,225 @@
             now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
             + ' · ' + now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-        // Pre-load voices for TTS (Chrome requires this)
         if (window.speechSynthesis) {
             window.speechSynthesis.getVoices();
             window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
 
-        // Add Logout Handler
         const logoutBtn = document.getElementById('logoutBtn');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', () => {
-                sessionStorage.clear();
-                window.location.href = '/index.html';
+                BankAI_API.clearSession();
+                window.location.href = '/login.html';
             });
         }
 
         startWaveformAnimation();
-        greet();
+
+        // ── Async orchestration: verify session → load apps → greet ──────────
+        (async () => {
+            // 1. Verify token is still valid
+            const user = await BankAI_API.verifySession();
+            if (!user) {
+                BankAI_API.clearSession();
+                window.location.href = '/login.html';
+                return;
+            }
+
+            // 2. Load user's submissions (My Applications panel)
+            await loadMyApplications();
+
+            // 3. Check for in-progress submission to restore
+            await checkSessionRestore();
+
+            // 4. Greet (only if not resuming)
+            if (state.mode === 'chat') {
+                greet();
+            }
+        })();
     }
+
+
+    // ── My Applications panel ─────────────────────────────────────────────────
+    async function loadMyApplications() {
+        const listEl = document.getElementById('appsList');
+        const countEl = document.getElementById('appsCount');
+        if (!listEl) return;
+
+        try {
+            const res = await BankAI_API.request(BankAI_API.ENDPOINTS.SUBMISSIONS);
+            if (!res.ok) throw new Error('Could not load submissions');
+
+            const subs = await res.json();
+            countEl.textContent = subs.length
+                ? `${subs.length} application${subs.length !== 1 ? 's' : ''}`
+                : 'None yet';
+
+            if (!subs.length) {
+                listEl.innerHTML = '<div class="apps-empty">📭 No applications yet.<br>Ask the AI assistant to get started!</div>';
+                return;
+            }
+
+            // Fetch form names in parallel
+            const formCache = {};
+            const formFetches = [...new Set(subs.map(s => s.form_id).filter(Boolean))].map(async fid => {
+                try {
+                    const r = await BankAI_API.request(`${BankAI_API.ENDPOINTS.SUBMISSIONS}/../forms/${fid}`);
+                    if (r.ok) formCache[fid] = await r.json();
+                } catch {}
+            });
+            await Promise.allSettled(formFetches);
+
+            listEl.innerHTML = '';
+            subs.forEach((sub, idx) => {
+                const form = formCache[sub.form_id] || {};
+                const formName = form.name || 'Banking Application';
+                const isCompleted = sub.status === 'completed';
+                const isActive = !isCompleted && sub.current_field_index > 0;
+
+                const totalFields = form.total_fields || 0;
+                const pct = totalFields > 0 ? Math.round((sub.current_field_index / totalFields) * 100) : 0;
+
+                const dateStr = sub.created_at
+                    ? new Date(sub.created_at._seconds ? sub.created_at._seconds * 1000 : sub.created_at)
+                        .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                    : 'Recently';
+
+                const statusClass = isCompleted ? 'completed' : (isActive ? 'active' : 'draft');
+                const statusLabel = isCompleted ? '✅ Completed' : (isActive ? '⚡ In Progress' : '📝 Draft');
+
+                const item = document.createElement('div');
+                item.className = 'app-item';
+                item.style.animationDelay = `${idx * 0.06}s`;
+                item.innerHTML = `
+                    <div class="app-icon">${isCompleted ? '✅' : '📋'}</div>
+                    <div class="app-info">
+                        <div class="app-name">${formName}</div>
+                        <div class="app-meta">
+                            <span>${dateStr}</span>
+                            ${!isCompleted && totalFields ? `<span>·</span><span>${sub.current_field_index}/${totalFields} fields</span>` : ''}
+                        </div>
+                        ${!isCompleted && totalFields ? `
+                        <div class="app-progress-wrap" style="margin-top:.45rem">
+                            <div class="app-progress-fill" style="width:${pct}%"></div>
+                        </div>` : ''}
+                    </div>
+                    <span class="app-status ${statusClass}">${statusLabel}</span>
+                    ${!isCompleted ? `<button class="btn-resume" data-sub-id="${sub.id}" data-form-name="${formName}" onclick="resumeSubmission('${sub.id}', '${formName}')">Resume →</button>` : ''}
+                    ${isCompleted ? `<button class="btn-resume" style="background:rgba(52,211,153,.15);color:#34d399;box-shadow:none;border:1px solid rgba(52,211,153,.3)" onclick="downloadPdfForSub('${sub.id}')">📥 PDF</button>` : ''}
+                `;
+                listEl.appendChild(item);
+            });
+        } catch (err) {
+            console.warn('My Applications load failed:', err.message);
+            listEl.innerHTML = '<div class="apps-empty">⚠️ Could not load applications. Server may be offline.</div>';
+            if (countEl) countEl.textContent = 'Unavailable';
+        }
+    }
+
+
+    // ── Session restore — check for in-progress form ───────────────────────────
+    async function checkSessionRestore() {
+        const storedSubId = sessionStorage.getItem('bankai_submission_id');
+        if (!storedSubId) return;
+
+        const status = await BankAI_API.getConversationStatus(storedSubId);
+        if (!status || status.status === 'completed') {
+            sessionStorage.removeItem('bankai_submission_id');
+            return;
+        }
+
+        // Show restore banner
+        showRestoreBanner(status, storedSubId);
+    }
+
+    function showRestoreBanner(status, submissionId) {
+        const banner = document.getElementById('restoreBanner');
+        if (!banner) return;
+
+        const formName = status.form_name || 'Banking Application';
+        const pct = status.progress_pct || 0;
+        banner.style.display = 'block';
+        banner.innerHTML = `
+            <div class="restore-banner">
+                <div class="restore-banner-text">
+                    <span class="restore-icon">⏸️</span>
+                    <div>
+                        <div class="restore-title">Resume your application</div>
+                        <div class="restore-sub">${formName} — ${pct}% complete (${status.current_field_index}/${status.total_fields} fields)</div>
+                    </div>
+                </div>
+                <div class="restore-actions">
+                    <button class="btn-restore" onclick="resumeSubmission('${submissionId}', '${formName}')">▶ Resume</button>
+                    <button class="btn-restore-dismiss" onclick="dismissRestore()">Dismiss</button>
+                </div>
+            </div>
+        `;
+    }
+
+    window.dismissRestore = function() {
+        const banner = document.getElementById('restoreBanner');
+        if (banner) banner.style.display = 'none';
+        sessionStorage.removeItem('bankai_submission_id');
+    };
+
+    // Resume a submission from My Applications or restore banner
+    window.resumeSubmission = function(subId, formName) {
+        if (state.mode !== 'chat') {
+            BankAI_Toast.warning('Please finish or cancel the current form first.');
+            return;
+        }
+        // Close restore banner
+        const banner = document.getElementById('restoreBanner');
+        if (banner) banner.style.display = 'none';
+
+        // Resume by directly sending __start__ to get next question
+        state.submissionId = subId;
+        state.mode = 'form_filling';
+        subtitle.textContent = `Resuming: ${formName}`;
+        addCancelFormBtn();
+        addBubble('agent', `Welcome back! Let's continue your **${formName}** application where we left off.`);
+
+        setBusy(true);
+        showTyping();
+        BankAI_API.request(BankAI_API.ENDPOINTS.CONVERSATION_NEXT, {
+            method: 'POST',
+            body: { submission_id: subId, message: '__resume__' }
+        }).then(async res => {
+            removeTyping();
+            if (!res.ok) {
+                // Fallback to __start__ if __resume__ not supported
+                return BankAI_API.request(BankAI_API.ENDPOINTS.CONVERSATION_NEXT, {
+                    method: 'POST',
+                    body: { submission_id: subId, message: '__start__' }
+                });
+            }
+            return res;
+        }).then(async res => {
+            removeTyping();
+            if (res && res.ok) {
+                const turn = await res.json();
+                addBubble('agent', turn.next_question);
+                if (turn.total_fields != null) {
+                    showProgress(turn.current_field_index || 0, turn.total_fields);
+                }
+                speak(turn.next_question, () => { if (state.mode === 'form_filling') startListening(); });
+            }
+        }).catch(err => {
+            removeTyping();
+            addBubble('agent', 'Could not resume your application. Please try starting a new one.');
+            state.mode = 'chat';
+        }).finally(() => setBusy(false));
+    };
+
+    // Download PDF from My Applications
+    window.downloadPdfForSub = async function(subId) {
+        try {
+            await BankAI_API.downloadPdf(subId);
+        } catch (err) {
+            BankAI_Toast.error(err.message || 'Failed to download PDF.');
+        }
+    };
 
     initData();
 })();

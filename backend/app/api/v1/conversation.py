@@ -379,8 +379,73 @@ async def generate_stt_token(
         logger.error(f"Error requesting Deepgram token: {exc}")
         raise HTTPException(
             status_code=502,
-            detail="Speech service authentication failed."
+            detail="Speech service authentication failed.",
         )
 
 
+# ---------------------------------------------------------------------------
+# GET /status/{submission_id} — session restore: current conversation state
+# ---------------------------------------------------------------------------
 
+class ConversationStatusResponse(BaseModel):
+    """Snapshot of the current conversation state (no turn processing)."""
+    submission_id: str
+    conversation_state: str
+    current_field_index: int
+    total_fields: int
+    status: str          # draft | completed
+    form_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    progress_pct: int = 0
+
+
+@router.get(
+    "/status/{submission_id}",
+    response_model=ConversationStatusResponse,
+    summary="Get current conversation state for session restore",
+)
+def conversation_status(
+    submission_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Client = Depends(get_db),
+):
+    """
+    Return current state of a submission without advancing the conversation.
+
+    Used by the dashboard on page load to restore an in-progress session.
+    Raises 404 if submission not found or not owned by this user.
+    """
+    from app.services import submission_service
+    from app.services.form_service import get_ordered_active_fields
+    from app.models import COLL_FORMS, COLL_BANKS
+
+    sub = submission_service.get_submission(submission_id, user_id)
+
+    fields = get_ordered_active_fields(sub["form_id"])
+    total = len(fields)
+    current_idx = sub.get("current_field_index", 0)
+    pct = round((current_idx / total * 100)) if total > 0 else 0
+
+    form_name = None
+    bank_name = None
+    try:
+        form_doc = db.collection(COLL_FORMS).document(sub["form_id"]).get()
+        if form_doc.exists:
+            form_data = form_doc.to_dict()
+            form_name = form_data.get("name")
+            bank_doc = db.collection(COLL_BANKS).document(form_data.get("bank_id", "")).get()
+            if bank_doc.exists:
+                bank_name = bank_doc.to_dict().get("name")
+    except Exception:
+        pass
+
+    return ConversationStatusResponse(
+        submission_id=submission_id,
+        conversation_state=sub.get("conversation_state", "filling_form"),
+        current_field_index=current_idx,
+        total_fields=total,
+        status=sub.get("status", "draft"),
+        form_name=form_name,
+        bank_name=bank_name,
+        progress_pct=pct,
+    )

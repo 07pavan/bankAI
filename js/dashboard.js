@@ -812,7 +812,7 @@
         ctx.moveTo(pos.x, pos.y);
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
-        ctx.strokeStyle = '#0f172a'; // Drawing color (dark slate slate-900)
+        ctx.strokeStyle = '#ffffff'; // Drawing color (white stroke for nocturnal terminal theme)
     }
 
     function draw(e) {

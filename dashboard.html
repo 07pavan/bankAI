@@ -45,7 +45,7 @@
                 <img class="selfie-avatar" id="selfie-avatar" alt="Your photo" />
             </div>
             <div class="welcome-text">
-                <h1>Welcome to BankAI 👋</h1>
+                <h1>Welcome to BankAI<span style="color:var(--color-fey-ember)">.</span></h1>
                 <p>Your identity has been verified. Speak to your AI assistant below to get started.</p>
                 <div class="kyc-badge">✅ KYC Complete — <span id="timestamp"></span></div>
             </div>
@@ -73,7 +73,7 @@
         <!-- Session restore banner (shown if in-progress form detected) -->
         <div id="restoreBanner" style="display:none"></div>
 
-        <div class="section-title">AI Banking Assistant</div>
+        <div class="section-title">AI Banking Assistant<span style="color:var(--color-fey-ember)">.</span></div>
         <div class="ai-panel" id="aiPanel" role="main">
 
             <!-- Header -->
@@ -85,20 +85,20 @@
                         <!-- Animated robot SVG -->
                         <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AI Robot">
                             <!-- Head -->
-                            <rect x="6" y="8" width="30" height="26" rx="6" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5" />
+                            <rect x="6" y="8" width="30" height="26" rx="6" fill="var(--surface-canvas)" stroke="var(--color-fey-smoke)" stroke-width="1.5" />
                             <!-- Antenna -->
-                            <line x1="21" y1="8" x2="21" y2="3" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round" />
-                            <circle cx="21" cy="2.5" r="1.8" fill="#38bdf8" />
+                            <line x1="21" y1="8" x2="21" y2="3" stroke="var(--color-fey-smoke)" stroke-width="1.5" stroke-linecap="round" />
+                            <circle cx="21" cy="2.5" r="1.8" fill="var(--color-fey-signal)" />
                             <!-- Left eye -->
-                            <rect class="eye" x="11" y="14" width="7" height="7" rx="2" fill="#38bdf8" style="transform-origin:14.5px 17.5px" />
+                            <rect class="eye" x="11" y="14" width="7" height="7" rx="2" fill="var(--color-fey-signal)" style="transform-origin:14.5px 17.5px" />
                             <!-- Right eye -->
-                            <rect class="eye" x="24" y="14" width="7" height="7" rx="2" fill="#38bdf8" style="transform-origin:27.5px 17.5px; animation-delay:.3s" />
+                            <rect class="eye" x="24" y="14" width="7" height="7" rx="2" fill="var(--color-fey-signal)" style="transform-origin:27.5px 17.5px; animation-delay:.3s" />
                             <!-- Mouth bar -->
-                            <rect class="mouth" rx="2" x="12" y="26" width="18" height="4" fill="#a78bfa" />
+                            <rect class="mouth" rx="2" x="12" y="26" width="18" height="4" fill="var(--color-fey-mist)" />
                             <!-- Ear bolt left -->
-                            <circle cx="6" cy="21" r="2" fill="#334155" />
+                            <circle cx="6" cy="21" r="2" fill="var(--color-fey-smoke)" />
                             <!-- Ear bolt right -->
-                            <circle cx="36" cy="21" r="2" fill="#334155" />
+                            <circle cx="36" cy="21" r="2" fill="var(--color-fey-smoke)" />
                         </svg>
                     </div>
                 </div>
@@ -143,7 +143,7 @@
         </div>
 
         <!-- My Applications -->
-        <div class="section-title">My Applications</div>
+        <div class="section-title">My Applications<span style="color:var(--color-fey-ember)">.</span></div>
         <div class="applications-panel" id="applicationsPanel">
             <div class="apps-header">
                 <h3>📋 Your Submissions</h3>
@@ -157,7 +157,7 @@
         </div>
 
         <!-- Banking Services -->
-        <div class="section-title">Quick Services</div>
+        <div class="section-title">Quick Services<span style="color:var(--color-fey-ember)">.</span></div>
         <div class="services-grid" role="list" aria-label="Banking services">
 
             <div class="service-card" role="listitem" style="--ca:#34d399;" onclick="askAbout('I want to open a savings account')">
@@ -204,7 +204,7 @@
         </div>
 
         <!-- Verification Status -->
-        <div class="section-title">Verification Status</div>
+        <div class="section-title">Verification Status<span style="color:var(--color-fey-ember)">.</span></div>
         <div class="status-card" role="region" aria-label="Verification status">
             <div role="list">
                 <div class="timeline-item" role="listitem">

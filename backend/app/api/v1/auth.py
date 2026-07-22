@@ -88,8 +88,31 @@ def login(payload: LoginRequest):
     db = get_db()
 
     if payload.demo_mode:
-        # Demo mode: find first KYC-verified user
-        kyc_docs = list(db.collection(COLL_KYC_SUBMISSIONS).limit(1).stream())
+        # Demo mode: find first KYC-verified user (with timeout)
+        try:
+            timeout_sec = 8  # Give Firestore 8 seconds max before giving up
+
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    lambda: list(db.collection(COLL_KYC_SUBMISSIONS).limit(1).stream())
+                )
+                try:
+                    kyc_docs = future.result(timeout=timeout_sec)
+                except concurrent.futures.TimeoutError:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Database is unreachable (dummy credentials). Complete KYC first or configure real Firebase credentials.",
+                    )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Database error in demo login: {str(exc)[:120]}",
+            )
+
         if not kyc_docs:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

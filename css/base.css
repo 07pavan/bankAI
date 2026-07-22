@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   BankAI — Shared Base Styles
+   BankAI — Shared Base Styles (Fey Terminal Theme)
    ═══════════════════════════════════════════════════ */
 
 /* ── Reset ── */
@@ -12,18 +12,19 @@
 html {
   font-size: 16px;
   scroll-behavior: smooth;
+  background-color: var(--color-fey-ink);
 }
 
 body {
   font-family: var(--font);
-  background: var(--bg-deep);
+  background: var(--surface-canvas);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Ambient Background ── */
+/* ── Ambient Background (Deep, subtle depth halos) ── */
 .ambient-bg {
   position: fixed;
   inset: 0;
@@ -35,110 +36,167 @@ body {
 .orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.25; /* Reduced opacity for better performance */
-  animation: orbFloat 18s ease-in-out infinite alternate;
-  will-change: transform; /* Performance optimization */
+  filter: blur(140px);
+  opacity: 0.04; /* Extremely subtle terminal glow */
+  animation: orbFloat 24s ease-in-out infinite alternate;
+  will-change: transform;
 }
 
 .orb-1 {
-  width: 420px; height: 420px;
-  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-  top: -80px; left: -100px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, var(--color-fey-signal) 0%, transparent 70%);
+  top: -100px; left: -100px;
   animation-delay: 0s;
 }
 .orb-2 {
-  width: 350px; height: 350px;
-  background: radial-gradient(circle, var(--accent-purple) 0%, transparent 70%);
-  bottom: -60px; right: -80px;
-  animation-delay: -6s;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, var(--color-fey-ember) 0%, transparent 70%);
+  bottom: -80px; right: -80px;
+  animation-delay: -8s;
 }
 .orb-3 {
-  width: 280px; height: 280px;
-  background: radial-gradient(circle, var(--accent-green) 0%, transparent 70%);
-  top: 50%; left: 60%;
-  animation-delay: -12s;
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, var(--color-fey-growth) 0%, transparent 70%);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  animation-delay: -16s;
 }
 
 @keyframes orbFloat {
   0%   { transform: translate(0, 0) scale(1); }
-  50%  { transform: translate(40px, -30px) scale(1.12); }
-  100% { transform: translate(-20px, 20px) scale(0.95); }
+  50%  { transform: translate(50px, -40px) scale(1.1); }
+  100% { transform: translate(-30px, 30px) scale(0.9); }
 }
 
-/* ── Buttons ── */
+/* ── Typographic Defaults ── */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-fey-white);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-heading);
+}
+
+p {
+  color: var(--color-fey-graphite);
+  font-weight: var(--font-weight-regular);
+}
+
+/* ── Buttons (Fey Ghost Button design) ── */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 24px;
+  padding: 10px 24px;
   font-family: var(--font);
-  font-size: 0.95rem;
-  font-weight: 500;
-  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-buttons);
   border: 1px solid transparent;
   cursor: pointer;
   transition: var(--transition);
   text-decoration: none;
+  letter-spacing: -0.01em;
+  outline: none;
 }
 
+/* Primary Button is Ghost with a soft white halo */
 .btn-primary {
-  background: var(--accent);
-  color: #000;
-  font-weight: 600;
+  background: var(--surface-canvas);
+  color: var(--color-fey-white);
+  border: 1px solid var(--color-fey-white);
+  box-shadow: var(--shadow-md); /* rgba(255,255,255,0.25) 0px 0px 14px 0px */
 }
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: rgba(255, 255, 255, 0.35) 0px 0px 18px 0px;
+}
+.btn-primary:active {
+  transform: translateY(0);
 }
 
+/* Secondary Button sits in Fey Graphite border */
 .btn-secondary {
-  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
-  color: var(--text-primary);
-  border-color: var(--border, rgba(255, 255, 255, 0.08));
+  background: transparent;
+  color: var(--color-fey-graphite);
+  border: 1px solid var(--color-fey-smoke);
 }
 .btn-secondary:hover {
-  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.08));
-  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-fey-white);
+  border-color: var(--color-fey-mist);
+  transform: translateY(-1px);
+}
+.btn-secondary:active {
+  transform: translateY(0);
 }
 
+/* Glow Button (used for start CTA) is styled as a premium Ember outline ghost */
 .btn-glow {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-green) 100%);
-  color: #000;
-  font-weight: 600;
+  background: var(--surface-canvas);
+  color: var(--color-fey-white);
+  border: 1px solid var(--color-fey-ember);
+  box-shadow: 0 0 15px rgba(255, 161, 108, 0.15);
 }
 .btn-glow:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 25px rgba(56, 189, 248, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(255, 161, 108, 0.3);
+  background: rgba(255, 161, 108, 0.04);
 }
 
 .btn-sm {
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  border-radius: var(--radius-sm);
+  padding: 6px 16px;
+  font-size: 11px;
 }
 
-/* ── Input Validation Styles ── */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ── Inputs & Form Controls ── */
+input, textarea, select {
+  background: var(--surface-elevated);
+  border: 1px solid var(--color-fey-smoke);
+  border-radius: var(--radius-small);
+  padding: 10px 14px;
+  color: var(--color-fey-white);
+  font-family: var(--font);
+  font-size: var(--text-body);
+  outline: none;
+  transition: var(--transition);
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--color-fey-signal);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-fey-smoke);
+}
+
+/* ── Input Validation ── */
 .invalid {
   border-color: var(--accent-danger) !important;
-  box-shadow: 0 0 10px rgba(248, 113, 113, 0.3) !important;
+  box-shadow: 0 0 8px rgba(226, 92, 92, 0.2) !important;
   animation: shake 0.3s ease-in-out;
 }
 
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-6px); }
-  75% { transform: translateX(6px); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 /* ── Spinner ── */
 .spinner {
   width: 24px;
   height: 24px;
-  border: 3px solid rgba(255,255,255,0.1);
+  border: 2px solid rgba(255, 255, 255, 0.1);
   border-radius: 50%;
-  border-top-color: var(--accent);
-  animation: spin 1s ease-in-out infinite;
+  border-top-color: var(--color-fey-signal);
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
@@ -153,25 +211,26 @@ body {
   z-index: 9999;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  max-width: calc(100vw - 48px);
 }
 
 .toast {
-  background: rgba(15, 20, 30, 0.95);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--surface-card);
+  border: 1px solid var(--color-fey-smoke);
   padding: 14px 20px;
-  border-radius: var(--radius-md);
-  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-  backdrop-filter: blur(12px);
-  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  color: var(--color-fey-white);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 280px;
-  max-width: 420px;
+  max-width: 400px;
   animation: slideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   position: relative;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .toast::before {
@@ -183,10 +242,10 @@ body {
   width: 4px;
 }
 
-.toast-info::before { background: var(--accent); }
-.toast-success::before { background: var(--accent-green); }
+.toast-info::before { background: var(--color-fey-signal); }
+.toast-success::before { background: var(--color-fey-growth); }
 .toast-error::before { background: var(--accent-danger); }
-.toast-warning::before { background: var(--accent-warning); }
+.toast-warning::before { background: var(--color-fey-ember); }
 
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }
@@ -200,4 +259,20 @@ body {
 @keyframes slideOut {
   from { transform: translateX(0); opacity: 1; }
   to { transform: translateX(100%); opacity: 0; }
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-canvas);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-fey-smoke);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fey-ash);
 }

@@ -84,19 +84,41 @@ function showAuthDenied(message) {
     if (!existing) {
         const btn = document.createElement('a');
         btn.id = 'goLoginBtn';
-        btn.href = '/index.html';
-        btn.className = 'btn-primary';
-        btn.style.cssText = 'display:inline-block;margin-top:1rem;padding:0.75rem 1.5rem;background:var(--accent-primary,#6366f1);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;';
+        btn.href = '/login.html';
+        btn.className = 'btn btn-primary';
+        btn.style.cssText = 'display:inline-block;margin-top:1rem;';
         btn.textContent = '→ Go to Login Page';
         overlay.appendChild(btn);
     }
+}
+
+/**
+ * submitToken() — called by the "Access Admin Panel" button in admin.html
+ * Reads the JWT from the textarea, stores it, and attempts bootstrap.
+ */
+function submitToken() {
+    const tokenInput = document.getElementById('tokenInput');
+    const errEl = document.getElementById('authError');
+
+    if (!tokenInput) return;
+    const token = tokenInput.value.trim();
+    if (!token) {
+        errEl.textContent = 'Please paste your JWT token.';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    errEl.style.display = 'none';
+    adminToken = token;
+    sessionStorage.setItem('bankai_token', token);
+    tryBootstrap();
 }
 
 function logout() {
     adminToken = null;
     sessionStorage.removeItem('bankai_token');
     sessionStorage.clear();
-    window.location.href = '/index.html';
+    window.location.href = '/login.html';
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -133,9 +155,17 @@ const TAB_SUBTITLES = {
 function showTab(name) {
     document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+    
     document.getElementById(`tab-${name}`).classList.add('active');
-    document.getElementById(`nav-${name}`).classList.add('active');
-    document.getElementById('pageTitle').textContent = TAB_TITLES[name];
+    
+    const sidebarBtn = document.getElementById(`nav-${name}`);
+    if (sidebarBtn) sidebarBtn.classList.add('active');
+    
+    const mobileBtn = document.getElementById(`m-nav-${name}`);
+    if (mobileBtn) mobileBtn.classList.add('active');
+    
+    document.getElementById('pageTitle').innerHTML = TAB_TITLES[name] + '<span style="color:var(--color-fey-ember)">.</span>';
     document.getElementById('pageSubtitle').textContent = TAB_SUBTITLES[name] || '';
 
     if (name === 'banks') loadBanks();

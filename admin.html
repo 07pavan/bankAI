@@ -18,19 +18,19 @@
 <!-- Auth overlay -->
 <div class="auth-overlay" id="authOverlay">
   <div class="auth-box">
-    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1.2rem;">
-      <span style="font-size:1.8rem">🏦</span>
-      <span style="font-size:1.3rem;font-weight:800">Bank<span style="color:var(--accent)">AI</span> <span style="font-size:.9rem;color:var(--accent3);font-weight:600">Admin</span></span>
+    <div class="logo">
+      <span class="logo-icon">🏦</span>
+      <span class="logo-text">Bank<span class="logo-accent">AI</span> <span class="admin-badge">ADMIN</span></span>
     </div>
-    <h1>Admin Login</h1>
+    <h1>Admin Login<span style="color:var(--color-fey-ember)">.</span></h1>
     <p>Enter your admin JWT token to access the admin panel.</p>
     <div class="form-group">
-      <label>Admin JWT Token</label>
-      <textarea id="tokenInput" class="form-textarea" style="width:100%;min-height:100px;font-size:.8rem;font-family:monospace" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
+      <label class="form-label">Admin JWT Token</label>
+      <textarea id="tokenInput" class="form-textarea" style="width:100%;min-height:100px;font-family:monospace;font-size:11px;" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
       <div class="auth-error" id="authError">Invalid or non-admin token. Please try again.</div>
     </div>
     <button class="btn btn-accent" style="width:100%;" onclick="submitToken()">
-      🔐 Access Admin Panel
+      Access Admin Panel →
     </button>
   </div>
 </div>
@@ -70,6 +70,26 @@
       <button class="btn btn-secondary btn-sm" style="width:100%" onclick="logout()">🚪 Logout</button>
     </div>
   </aside>
+
+  <!-- Mobile Sticky bottom nav dock -->
+  <nav class="mobile-nav-dock" aria-label="Mobile navigation">
+    <button class="mobile-nav-btn active" id="m-nav-banks" onclick="showTab('banks')">
+      <span class="nav-icon">🏛️</span>
+      <span>Banks</span>
+    </button>
+    <button class="mobile-nav-btn" id="m-nav-forms" onclick="showTab('forms')">
+      <span class="nav-icon">📋</span>
+      <span>Forms</span>
+    </button>
+    <button class="mobile-nav-btn" id="m-nav-submissions" onclick="showTab('submissions')">
+      <span class="nav-icon">📊</span>
+      <span>Submissions</span>
+    </button>
+    <button class="mobile-nav-btn" id="m-nav-audits" onclick="showTab('audits')">
+      <span class="nav-icon">🔍</span>
+      <span>Audits</span>
+    </button>
+  </nav>
 
   <!-- Main -->
   <main class="main">

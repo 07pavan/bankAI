@@ -19,8 +19,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--bg-primary);
-      font-family: 'Inter', sans-serif;
+      background: var(--surface-canvas);
+      font-family: var(--font);
       padding: 1.5rem;
     }
 
@@ -35,33 +35,34 @@
     .orb {
       position: absolute;
       border-radius: 50%;
-      filter: blur(80px);
-      opacity: 0.18;
-      animation: orbFloat 8s ease-in-out infinite;
+      filter: blur(100px);
+      opacity: 0.04;
+      animation: orbFloat 10s ease-in-out infinite alternate;
     }
-    .orb-1 { width: 420px; height: 420px; background: radial-gradient(circle, #818cf8, transparent); top: -100px; left: -80px; animation-delay: 0s; }
-    .orb-2 { width: 380px; height: 380px; background: radial-gradient(circle, #34d399, transparent); bottom: -100px; right: -80px; animation-delay: -4s; }
-    .orb-3 { width: 300px; height: 300px; background: radial-gradient(circle, #a78bfa, transparent); top: 50%; left: 50%; transform: translate(-50%,-50%); animation-delay: -2s; }
+    .orb-1 { width: 450px; height: 450px; background: radial-gradient(circle, var(--color-fey-signal) 0%, transparent 70%); top: -120px; left: -80px; }
+    .orb-2 { width: 350px; height: 350px; background: radial-gradient(circle, var(--color-fey-growth) 0%, transparent 70%); bottom: -120px; right: -80px; animation-delay: -4s; }
+    .orb-3 { width: 300px; height: 300px; background: radial-gradient(circle, var(--color-fey-ember) 0%, transparent 70%); top: 50%; left: 50%; transform: translate(-50%,-50%); animation-delay: -2s; }
+    
     @keyframes orbFloat {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(20px, -20px) scale(1.05); }
+      0%   { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(30px, -20px) scale(1.08); }
     }
 
-    /* ── Card ── */
+    /* ── Card (Fey Product Showcase Card) ── */
     .login-card {
       position: relative;
       z-index: 1;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 1.5rem;
-      padding: 2.75rem 2.5rem 2.25rem;
+      background: var(--surface-card);
+      border: 1px solid var(--color-fey-smoke);
+      border-radius: var(--radius-cards);
+      padding: 44px 36px 36px;
       width: 100%;
-      max-width: 440px;
-      box-shadow: 0 24px 64px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.04);
-      animation: cardIn .45s cubic-bezier(.34,1.56,.64,1) both;
+      max-width: 420px;
+      box-shadow: var(--shadow-xl); /* Heavy black floating halo */
+      animation: cardIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
     @keyframes cardIn {
-      from { opacity: 0; transform: translateY(24px) scale(.97); }
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
       to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
@@ -69,149 +70,155 @@
     .logo {
       display: flex;
       align-items: center;
-      gap: .65rem;
-      margin-bottom: 2rem;
+      gap: 8px;
+      margin-bottom: 24px;
       justify-content: center;
     }
-    .logo-icon { font-size: 2rem; }
-    .logo-text {
-      font-size: 1.75rem;
-      font-weight: 800;
-      color: var(--text-primary);
-      letter-spacing: -.04em;
+    .logo-icon {
+      font-size: 24px;
+      filter: grayscale(1) brightness(1.5);
     }
-    .logo-accent { color: var(--accent); }
+    .logo-text {
+      font-size: 22px;
+      font-weight: var(--font-weight-bold);
+      color: var(--color-fey-white);
+      letter-spacing: var(--tracking-heading);
+    }
+    .logo-accent { color: var(--color-fey-ember); }
 
     /* ── Heading ── */
     .login-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: var(--text-primary);
+      font-size: var(--text-heading);
+      font-weight: var(--font-weight-bold);
+      color: var(--color-fey-white);
       text-align: center;
-      margin-bottom: .5rem;
+      margin-bottom: 6px;
+      letter-spacing: var(--tracking-heading);
     }
     .login-sub {
       text-align: center;
-      color: var(--text-muted);
-      font-size: .9rem;
-      margin-bottom: 2rem;
+      color: var(--color-fey-graphite);
+      font-size: 13px;
+      margin-bottom: 28px;
     }
 
-    /* ── Tab switcher ── */
+    /* ── Tab switcher (Fey Navigation style) ── */
     .tab-row {
       display: flex;
-      background: var(--surface-raised);
-      border-radius: .75rem;
-      padding: .25rem;
-      gap: .25rem;
-      margin-bottom: 2rem;
+      border-bottom: 1px solid var(--color-fey-smoke);
+      margin-bottom: 28px;
+      gap: 16px;
     }
     .tab-btn {
       flex: 1;
-      padding: .6rem 1rem;
+      padding: 10px 0;
       border: none;
       background: transparent;
-      border-radius: .55rem;
-      color: var(--text-muted);
-      font-weight: 500;
-      font-size: .875rem;
+      color: var(--color-fey-graphite);
+      font-weight: var(--font-weight-medium);
+      font-size: 13px;
       cursor: pointer;
-      transition: all .2s;
+      transition: var(--transition);
+      border-bottom: 2px solid transparent;
+      text-align: center;
     }
     .tab-btn.active {
-      background: var(--accent);
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(129,140,248,.35);
+      color: var(--color-fey-white);
+      border-bottom-color: var(--color-fey-signal);
     }
 
     /* ── Input group ── */
-    .field-group { margin-bottom: 1.5rem; }
+    .field-group { margin-bottom: 20px; }
     .field-label {
       display: block;
-      font-size: .8rem;
-      font-weight: 600;
-      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-fey-graphite);
       text-transform: uppercase;
-      letter-spacing: .06em;
-      margin-bottom: .45rem;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
     }
     .field-input {
       width: 100%;
-      background: var(--surface-raised);
-      border: 1.5px solid var(--border);
-      border-radius: .75rem;
-      padding: .8rem 1rem;
-      color: var(--text-primary);
-      font-size: 1rem;
+      background: var(--surface-elevated);
+      border: 1px solid var(--color-fey-smoke);
+      border-radius: var(--radius-small);
+      padding: 12px 14px;
+      color: var(--color-fey-white);
+      font-size: var(--text-body);
       font-family: inherit;
-      transition: border-color .2s, box-shadow .2s;
+      transition: var(--transition);
       box-sizing: border-box;
+      outline: none;
     }
     .field-input:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(129,140,248,.18);
+      border-color: var(--color-fey-signal);
     }
-    .field-input::placeholder { color: var(--text-muted); }
+    .field-input::placeholder { color: var(--color-fey-smoke); }
     .field-input.invalid {
       border-color: var(--accent-danger);
-      box-shadow: 0 0 0 3px rgba(248,113,113,.15);
+      box-shadow: 0 0 8px rgba(226, 92, 92, 0.2);
     }
 
     /* ── OTP boxes ── */
     .otp-row {
       display: flex;
-      gap: .65rem;
+      gap: 12px;
       justify-content: center;
     }
     .otp-box {
-      width: 56px;
-      height: 62px;
+      width: 52px;
+      height: 58px;
       text-align: center;
-      font-size: 1.5rem;
-      font-weight: 700;
-      background: var(--surface-raised);
-      border: 1.5px solid var(--border);
-      border-radius: .75rem;
-      color: var(--text-primary);
+      font-size: 22px;
+      font-weight: var(--font-weight-bold);
+      background: var(--surface-elevated);
+      border: 1px solid var(--color-fey-smoke);
+      border-radius: var(--radius-small);
+      color: var(--color-fey-white);
       font-family: inherit;
-      transition: border-color .2s, box-shadow .2s;
+      transition: var(--transition);
+      outline: none;
     }
     .otp-box:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(129,140,248,.18);
+      border-color: var(--color-fey-signal);
     }
-    .otp-box.filled { border-color: var(--accent); }
+    .otp-box.filled { border-color: var(--color-fey-white); }
     .otp-box.invalid { border-color: var(--accent-danger); }
 
-    /* ── Buttons ── */
+    /* ── Buttons (Fey Ghost style) ── */
     .btn-login {
       width: 100%;
-      padding: .9rem;
-      background: linear-gradient(135deg, var(--accent) 0%, #6d28d9 100%);
-      color: #fff;
-      border: none;
-      border-radius: .9rem;
-      font-size: 1rem;
-      font-weight: 700;
+      padding: 12px;
+      background: var(--surface-canvas);
+      color: var(--color-fey-white);
+      border: 1px solid var(--color-fey-white);
+      border-radius: var(--radius-buttons);
+      font-size: 13px;
+      font-weight: var(--font-weight-medium);
       font-family: inherit;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: .5rem;
-      transition: opacity .2s, transform .15s;
-      box-shadow: 0 4px 16px rgba(129,140,248,.35);
-      margin-top: .5rem;
+      gap: 8px;
+      transition: var(--transition);
+      box-shadow: var(--shadow-md); /* soft white halo glow */
+      margin-top: 10px;
+      outline: none;
     }
-    .btn-login:hover:not(:disabled) { opacity: .92; transform: translateY(-1px); }
+    .btn-login:hover:not(:disabled) {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: rgba(255, 255, 255, 0.35) 0px 0px 18px 0px;
+    }
     .btn-login:active:not(:disabled) { transform: translateY(0); }
-    .btn-login:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-login:disabled { opacity: 0.4; cursor: not-allowed; }
+    
     .spinner-sm {
-      width: 18px; height: 18px;
-      border: 2px solid rgba(255,255,255,.3);
-      border-top-color: #fff;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.1);
+      border-top-color: var(--color-fey-white);
       border-radius: 50%;
       animation: spin .7s linear infinite;
     }
@@ -221,52 +228,54 @@
     .divider {
       display: flex;
       align-items: center;
-      gap: .75rem;
-      margin: 1.5rem 0;
+      gap: 12px;
+      margin: 20px 0;
     }
     .divider::before, .divider::after {
       content: '';
       flex: 1;
       height: 1px;
-      background: var(--border);
+      background: var(--color-fey-smoke);
     }
-    .divider span { color: var(--text-muted); font-size: .8rem; }
+    .divider span { color: var(--color-fey-graphite); font-size: 11px; }
 
     /* ── KYC link ── */
     .kyc-link {
       text-align: center;
-      font-size: .88rem;
-      color: var(--text-muted);
+      font-size: 13px;
+      color: var(--color-fey-graphite);
     }
     .kyc-link a {
-      color: var(--accent);
+      color: var(--color-fey-white);
       text-decoration: none;
-      font-weight: 600;
+      font-weight: var(--font-weight-medium);
+      transition: var(--transition);
     }
-    .kyc-link a:hover { text-decoration: underline; }
+    .kyc-link a:hover {
+      color: var(--color-fey-signal);
+    }
 
-    /* ── Error banner ── */
+    /* ── Status banners (clean, minimal borders) ── */
     .error-banner {
-      background: rgba(248, 113, 113, .12);
-      border: 1px solid rgba(248, 113, 113, .3);
-      border-radius: .75rem;
-      padding: .75rem 1rem;
-      color: var(--accent-danger, #f87171);
-      font-size: .875rem;
-      margin-bottom: 1.25rem;
+      background: rgba(226, 92, 92, 0.05);
+      border: 1px solid var(--accent-danger);
+      border-radius: var(--radius-small);
+      padding: 10px 14px;
+      color: var(--accent-danger);
+      font-size: 13px;
+      margin-bottom: 20px;
       display: none;
     }
     .error-banner.show { display: block; }
 
-    /* ── Success banner ── */
     .success-banner {
-      background: rgba(52, 211, 153, .12);
-      border: 1px solid rgba(52, 211, 153, .3);
-      border-radius: .75rem;
-      padding: .75rem 1rem;
-      color: #34d399;
-      font-size: .875rem;
-      margin-bottom: 1.25rem;
+      background: rgba(78, 190, 150, 0.05);
+      border: 1px solid var(--color-fey-growth);
+      border-radius: var(--radius-small);
+      padding: 10px 14px;
+      color: var(--color-fey-growth);
+      font-size: 13px;
+      margin-bottom: 20px;
       display: none;
     }
     .success-banner.show { display: block; }
@@ -275,15 +284,17 @@
     .demo-badge {
       display: inline-flex;
       align-items: center;
-      gap: .35rem;
-      background: rgba(251, 191, 36, .15);
-      border: 1px solid rgba(251, 191, 36, .3);
-      border-radius: 999px;
-      padding: .3rem .75rem;
-      font-size: .75rem;
-      font-weight: 600;
-      color: #fbbf24;
-      margin-bottom: 1.5rem;
+      gap: 6px;
+      border: 1px solid var(--color-fey-ember);
+      background: rgba(255, 161, 108, 0.04);
+      border-radius: var(--radius-buttons);
+      padding: 4px 12px;
+      font-size: 10px;
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-fey-ember);
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
   </style>
 </head>
@@ -303,8 +314,8 @@
       <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
     </div>
 
-    <h1 class="login-title">Welcome Back</h1>
-    <p class="login-sub">Sign in to access your banking services</p>
+    <h1 class="login-title">Welcome Back<span style="color:var(--color-fey-ember)">.</span></h1>
+    <p class="login-sub">Sign in to access your banking services.</p>
 
     <!-- Tab switcher: Aadhaar vs Demo -->
     <div class="tab-row" role="tablist">

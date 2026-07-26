@@ -178,3 +178,105 @@ def save_signature(
         "signature_path": relative_path,
         "signed_at": now.isoformat(),
     }
+
+
+def save_voice_signature(
+    submission_id: str,
+    user_id: str,
+    base64_audio: str,
+) -> dict:
+    """
+    Decode a base64 audio recording, save to disk as webm, and update the submission.
+    """
+    if not base64_audio or not base64_audio.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Voice signature audio data is required.",
+        )
+
+    # --- Load submission from Firestore ---
+    db = get_db()
+    sub_doc = db.collection(COLL_SUBMISSIONS).document(submission_id).get()
+    if not sub_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Submission {submission_id} not found.",
+        )
+    sub = sub_doc.to_dict()
+
+    # --- Ownership check ---
+    if sub.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this submission.",
+        )
+
+    # --- Strip data URL prefix if present ---
+    audio_data = base64_audio.strip()
+    if audio_data.startswith("data:"):
+        try:
+            _, audio_data = audio_data.split(",", 1)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid data URL format for voice signature.",
+            )
+
+    # --- Decode base64 ---
+    try:
+        audio_bytes = base64.b64decode(audio_data, validate=True)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base64 encoding for voice signature.",
+        )
+
+    # --- Size check (allow up to 2MB) ---
+    max_voice_bytes = 2 * 1024 * 1024
+    if len(audio_bytes) > max_voice_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Voice recording exceeds maximum size of 2 MB.",
+        )
+
+    # --- Save to disk ---
+    _ensure_signature_dir()
+    filename = f"voice_{uuid.uuid4().hex}.webm"
+    filepath = os.path.join(SIGNATURE_DIR, filename)
+
+    try:
+        with open(filepath, "wb") as f:
+            f.write(audio_bytes)
+    except OSError as exc:
+        logger.error(f"Failed to write voice signature file {filepath}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save voice signature. Please try again.",
+        )
+
+    # --- Update Firestore submission document ---
+    now = datetime.now(timezone.utc)
+    relative_path = f"signatures/{filename}"
+
+    update_payload: dict = {
+        "signature_path": relative_path,
+        "signed_at": now,
+        "signing_method": "voice",
+        "conversation_state": ConversationState.COMPLETE.value,
+        "status": "completed",
+    }
+
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update(update_payload)
+
+    logger.info(
+        f"Voice signature saved: submission={submission_id} user={user_id} "
+        f"file={filename} size={len(audio_bytes)} bytes"
+    )
+
+    return {
+        "submission_id": submission_id,
+        "signature_path": relative_path,
+        "signed_at": now.isoformat(),
+        "signing_method": "voice",
+    }
+

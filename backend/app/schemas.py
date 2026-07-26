@@ -186,6 +186,29 @@ class SignatureUploadResponse(BaseModel):
     signed_at: str
 
 
+class VoiceSignatureUploadRequest(BaseModel):
+    """Upload a base64-encoded voice signature audio file."""
+    audio: str  # base64 string (with or without data URL prefix)
+
+
+class VoiceSignatureUploadResponse(BaseModel):
+    """Response after successful voice signature upload."""
+    submission_id: str
+    message: str = "Voice signature saved successfully."
+    signed_at: str
+class AdminLoginRequest(BaseModel):
+    """Admin sign-in request body."""
+    username: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    """Admin sign-in response body containing access token."""
+    access_token: str
+    token_type: str = "bearer"
+    message: str = "Admin login successful"
+
+
 # ---------------------------------------------------------------------------
 # Conversation Agent schemas
 # ---------------------------------------------------------------------------

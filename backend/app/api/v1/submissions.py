@@ -21,6 +21,7 @@ from app.core.logging import get_logger
 from app.schemas import (
     SubmissionCreate, SubmissionOut,
     SignatureUploadRequest, SignatureUploadResponse,
+    VoiceSignatureUploadRequest, VoiceSignatureUploadResponse,
 )
 from app.services import submission_service
 from app.services import signature_service
@@ -34,6 +35,12 @@ router = APIRouter()
 class CompleteSubmissionRequest(BaseModel):
     """Body for POST /submissions/complete."""
     submission_id: str
+
+
+class BankerOverrideRequest(BaseModel):
+    """Body for POST /submissions/{id}/override."""
+    field_key: str
+    value: str
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +143,36 @@ def upload_signature(
 
 
 # ---------------------------------------------------------------------------
+# POST /{id}/voice-signature  — upload voice signature audio (Phase 4)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{submission_id}/voice-signature",
+    response_model=VoiceSignatureUploadResponse,
+    summary="Upload applicant voice signature consent",
+)
+def upload_voice_signature(
+    submission_id: str,
+    payload: VoiceSignatureUploadRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Upload a base64-encoded webm voice recording consent for a submission.
+    Transitions submission to COMPLETE state and status to completed.
+    """
+    result = signature_service.save_voice_signature(
+        submission_id=submission_id,
+        user_id=user_id,
+        base64_audio=payload.audio,
+    )
+    logger.info(f"Voice signature uploaded: submission={submission_id} user={user_id}")
+    return VoiceSignatureUploadResponse(
+        submission_id=result["submission_id"],
+        signed_at=result["signed_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /{id}/pdf  — download generated PDF (Phase 3)
 # ---------------------------------------------------------------------------
 
@@ -169,4 +206,39 @@ def download_pdf(
         media_type="application/pdf",
         filename=f"BankAI_Application_{submission_id}.pdf",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /active/monitor — retrieve all active draft submissions (Banker Co-Pilot)
+# ---------------------------------------------------------------------------
+
+@router.get("/active/monitor", summary="Retrieve all active submissions for banker monitor")
+def get_active_monitor(
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    List all active draft submissions in the system.
+    """
+    return submission_service.get_active_submissions()
+
+
+# ---------------------------------------------------------------------------
+# POST /{id}/override — allow a banker to override a field (Banker Co-Pilot)
+# ---------------------------------------------------------------------------
+
+@router.post("/{submission_id}/override", summary="Banker override of form field")
+def banker_override(
+    submission_id: str,
+    payload: BankerOverrideRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Allow a banker to manually override a submission field.
+    """
+    return submission_service.banker_override_field(
+        submission_id=submission_id,
+        field_key=payload.field_key,
+        value=payload.value,
+    )
+
 

@@ -36,6 +36,7 @@ const BankAI_API = (() => {
 
   // Dynamic URL builders
   const submissionSignatureUrl  = (id) => `${BASE}/submissions/${id}/signature`;
+  const submissionVoiceSignatureUrl = (id) => `${BASE}/submissions/${id}/voice-signature`;
   const submissionPdfUrl        = (id) => `${BASE}/submissions/${id}/pdf`;
   const conversationStatusUrl   = (id) => `${BASE}/conversation/status/${id}`;
 
@@ -151,6 +152,16 @@ const BankAI_API = (() => {
   }
 
   /**
+   * Upload a base64 voice recording consent for a submission.
+   */
+  async function uploadVoiceSignature(submissionId, base64Audio) {
+    return request(submissionVoiceSignatureUrl(submissionId), {
+      method: 'POST',
+      body: { audio: base64Audio },
+    });
+  }
+
+  /**
    * Download the generated PDF for a completed submission.
    */
   async function downloadPdf(submissionId) {
@@ -179,6 +190,7 @@ const BankAI_API = (() => {
     login,
     getConversationStatus,
     uploadSignature,
+    uploadVoiceSignature,
     downloadPdf,
   };
 })();

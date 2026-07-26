@@ -274,3 +274,47 @@ def get_user_submissions(user_id: str) -> list[dict]:
     # Sort by created_at descending. Use datetime.min as fallback if created_at is missing.
     docs_list.sort(key=lambda d: d.get("created_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return docs_list
+
+
+def get_active_submissions() -> list[dict]:
+    """Fetch all active draft submissions across the bank for co-browsing."""
+    db = get_db()
+    docs = (
+        db.collection(COLL_SUBMISSIONS)
+        .where("status", "==", SubmissionStatus.DRAFT.value)
+        .stream()
+    )
+    results = []
+    for doc in docs:
+        sub_dict = _doc_to_dict(doc)
+        
+        # Load form details
+        try:
+            form_doc = db.collection(COLL_FORMS).document(sub_dict["form_id"]).get()
+            sub_dict["form_name"] = form_doc.to_dict().get("name", "Unknown Form") if form_doc.exists else "Unknown Form"
+        except Exception:
+            sub_dict["form_name"] = "Unknown Form"
+
+        # Load answered values
+        answers = (
+            db.collection(COLL_SUBMISSION_DATA)
+            .where("submission_id", "==", doc.id)
+            .stream()
+        )
+        sub_dict["data"] = [{"field_key": a.to_dict().get("field_key"), "value": a.to_dict().get("value")} for a in answers]
+        results.append(sub_dict)
+    
+    # Sort by updated_at descending in memory
+    results.sort(key=lambda x: x.get("updated_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return results
+
+
+def banker_override_field(submission_id: str, field_key: str, value: str) -> dict:
+    """Allow a banker to manually override or save a customer's field answer."""
+    res = save_field_value(submission_id, field_key, value)
+    db = get_db()
+    db.collection(COLL_SUBMISSIONS).document(submission_id).update({
+        "updated_at": datetime.now(timezone.utc)
+    })
+    return res
+

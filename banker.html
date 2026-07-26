@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banker Co-Pilot Dashboard — BankAI</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/base.css">
+    <style>
+        body {
+            background-color: var(--color-fey-ink);
+            color: var(--color-fey-mist);
+            font-family: 'Outfit', var(--font-calibre), sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .banker-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header block */
+        .banker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--color-fey-charcoal);
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .banker-title-area h1 {
+            font-size: var(--text-heading-lg);
+            font-weight: 700;
+            margin: 0;
+            color: var(--color-fey-white);
+            letter-spacing: var(--tracking-heading-lg);
+        }
+
+        .banker-title-area h1 span {
+            background: var(--gradient-fey-ember);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .banker-title-area p {
+            margin: 0.25rem 0 0;
+            color: var(--color-fey-graphite);
+            font-size: var(--text-body);
+        }
+
+        .banker-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn-refresh {
+            background: rgba(255, 161, 108, 0.1);
+            color: var(--color-fey-ember);
+            border: 1px solid rgba(255, 161, 108, 0.2);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-refresh:hover {
+            background: rgba(255, 161, 108, 0.2);
+            border-color: var(--color-fey-ember);
+        }
+
+        /* Monitor Grid */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .monitor-card {
+            background: var(--color-fey-charcoal);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+            position: relative;
+        }
+
+        .monitor-card:hover {
+            border-color: rgba(255, 161, 108, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .customer-meta {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .customer-id {
+            font-size: 13px;
+            color: var(--color-fey-graphite);
+            font-family: monospace;
+        }
+
+        .form-name-badge {
+            font-size: var(--text-heading-sm);
+            font-weight: 600;
+            color: var(--color-fey-white);
+            margin-top: 0.25rem;
+        }
+
+        .state-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .state-badge.filling_form {
+            background: rgba(71, 159, 250, 0.15);
+            color: var(--color-fey-signal);
+            border: 1px solid rgba(71, 159, 250, 0.3);
+        }
+
+        .state-badge.review {
+            background: rgba(255, 161, 108, 0.15);
+            color: var(--color-fey-ember);
+            border: 1px solid rgba(255, 161, 108, 0.3);
+        }
+
+        .state-badge.signature {
+            background: rgba(214, 254, 81, 0.15);
+            color: var(--color-fey-volt);
+            border: 1px solid rgba(214, 254, 81, 0.3);
+        }
+
+        /* Progress line */
+        .progress-bar-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .progress-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--color-fey-graphite);
+        }
+
+        .progress-bar-bg {
+            background: rgba(255, 255, 255, 0.1);
+            height: 6px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            background: var(--color-fey-volt);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Answers box */
+        .answers-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--color-fey-ember);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .answers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .answer-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 6px 10px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+        }
+
+        .field-label {
+            color: var(--color-fey-graphite);
+            font-weight: 500;
+        }
+
+        .field-value {
+            color: var(--color-fey-white);
+            font-family: monospace;
+        }
+
+        /* Override controls */
+        .override-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 1rem;
+            margin-top: auto;
+        }
+
+        .override-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--color-fey-white);
+        }
+
+        .override-form {
+            display: flex;
+            gap: 8px;
+        }
+
+        .override-input {
+            flex: 1;
+            background: var(--color-fey-obsidian);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--color-fey-white);
+            border-radius: var(--radius-md);
+            padding: 0.4rem 0.75rem;
+            font-size: 13px;
+        }
+
+        .override-input:focus {
+            outline: none;
+            border-color: var(--color-fey-ember);
+        }
+
+        .override-select {
+            background: var(--color-fey-obsidian);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--color-fey-white);
+            border-radius: var(--radius-md);
+            padding: 0.4rem 0.5rem;
+            font-size: 13px;
+        }
+
+        .btn-override {
+            background: var(--color-fey-ember);
+            color: var(--color-fey-ink);
+            border: none;
+            font-weight: 600;
+            border-radius: var(--radius-md);
+            padding: 0.4rem 1rem;
+            cursor: pointer;
+            font-size: 13px;
+            transition: opacity 0.2s;
+        }
+
+        .btn-override:hover {
+            opacity: 0.9;
+        }
+
+        /* Empty state */
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 4rem 2rem;
+            background: var(--color-fey-charcoal);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-lg);
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            color: var(--color-fey-white);
+            margin: 0 0 0.5rem;
+        }
+
+        .empty-state p {
+            color: var(--color-fey-graphite);
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Top A11y Toolbar (consistent look) -->
+    <div class="a11y-toolbar" role="toolbar" aria-label="Accessibility settings">
+        <div class="a11y-left">
+            <button class="a11y-btn" id="easyModeToggle" aria-pressed="false">♿ Accessibility Mode: OFF</button>
+            <div class="a11y-dropdown">
+                <button class="a11y-dropdown-trigger" id="langTrigger">🌐 English</button>
+                <div class="a11y-dropdown-menu" id="langMenu" role="menu">
+                    <button role="menuitem" data-lang="en-IN">English</button>
+                    <button role="menuitem" data-lang="hi-IN">Hindi (हिन्दी)</button>
+                    <button role="menuitem" data-lang="kn-IN">Kannada (ಕನ್ನಡ)</button>
+                    <button role="menuitem" data-lang="te-IN">Telugu (తెలుగు)</button>
+                    <button role="menuitem" data-lang="ta-IN">Tamil (தமிழ்)</button>
+                </div>
+            </div>
+        </div>
+        <div style="font-size: 12px; color: var(--color-fey-ember); font-weight: 500;">
+            Banker Portal
+        </div>
+    </div>
+
+    <div class="banker-container">
+        <div class="banker-header">
+            <div class="banker-title-area">
+                <h1>Banker Co-Pilot <span>Dashboard</span></h1>
+                <p>Monitor active customer applications and provide real-time override corrections.</p>
+            </div>
+            <div class="banker-controls">
+                <button class="btn-refresh" id="refreshBtn">🔄 Refresh Now</button>
+            </div>
+        </div>
+
+        <main class="monitor-grid" id="monitorGrid">
+            <!-- Cards will be populated dynamically -->
+            <div class="empty-state">
+                <h3>Loading active submissions...</h3>
+                <p>Fetching real-time data from Firestore.</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/toast.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/banker.js"></script>
+</body>
+
+</html>

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
 
-from app.schemas import UserResponse
+from app.schemas import UserResponse, AdminLoginRequest, AdminLoginResponse
 from app.services import auth_service
 from app.core.security import get_current_user_id, create_access_token
 from app.core.logging import get_logger
@@ -156,3 +156,27 @@ def login(payload: LoginRequest):
         user_id=user_id,
         message="Login successful! Welcome back.",
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/login — fixed credentials admin sign-in (temporary)
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/login", response_model=AdminLoginResponse)
+def admin_login(payload: AdminLoginRequest):
+    """
+    Sign in an administrator using fixed temporary credentials.
+    """
+    if payload.username == "admin" and payload.password == "adminpass":
+        token = create_access_token(data={"sub": "admin_user", "role": "admin"})
+        logger.info("Admin user logged in successfully via static credentials.")
+        return AdminLoginResponse(
+            access_token=token,
+            message="Admin login successful!"
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin username or password",
+        )
+

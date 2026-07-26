@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Banker Sign In — BankAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--color-fey-ink);
+      color: var(--color-fey-mist);
+      font-family: 'Outfit', var(--font-calibre), sans-serif;
+      padding: 1.5rem;
+      margin: 0;
+    }
+
+    /* Ambient background Orbs */
+    .ambient-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.05;
+      animation: orbFloat 10s ease-in-out infinite alternate;
+    }
+
+    .orb-1 {
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, var(--color-fey-ember) 0%, transparent 70%);
+      top: -120px;
+      left: -80px;
+    }
+
+    .orb-2 {
+      width: 350px;
+      height: 350px;
+      background: radial-gradient(circle, var(--color-fey-signal) 0%, transparent 70%);
+      bottom: -120px;
+      right: -80px;
+      animation-delay: -4s;
+    }
+
+    @keyframes orbFloat {
+      0% {
+        transform: translate(0, 0) scale(1);
+      }
+      100% {
+        transform: translate(30px, -20px) scale(1.08);
+      }
+    }
+
+    /* Login Card container */
+    .login-card {
+      position: relative;
+      z-index: 1;
+      background: var(--color-fey-charcoal);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-lg);
+      padding: 44px 36px 36px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      animation: cardIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes cardIn {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      justify-content: center;
+    }
+
+    .logo-icon {
+      font-size: 24px;
+    }
+
+    .logo-text {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--color-fey-white);
+      letter-spacing: var(--tracking-heading);
+    }
+
+    .logo-accent {
+      color: var(--color-fey-ember);
+    }
+
+    .login-title {
+      font-size: var(--text-heading);
+      font-weight: 700;
+      color: var(--color-fey-white);
+      text-align: center;
+      margin-bottom: 6px;
+      letter-spacing: var(--tracking-heading);
+    }
+
+    .login-sub {
+      text-align: center;
+      color: var(--color-fey-graphite);
+      font-size: 13px;
+      margin-bottom: 28px;
+    }
+
+    /* Inputs */
+    .field-group {
+      margin-bottom: 20px;
+    }
+
+    .field-label {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--color-fey-graphite);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .field-input {
+      width: 100%;
+      background: var(--color-fey-ink);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      color: var(--color-fey-white);
+      font-size: var(--text-body);
+      font-family: inherit;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .field-input:focus {
+      border-color: var(--color-fey-ember);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      background: var(--color-fey-ember);
+      color: var(--color-fey-ink);
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+      margin-top: 10px;
+    }
+
+    .btn-login:hover {
+      opacity: 0.9;
+    }
+
+    /* Banners */
+    .error-banner {
+      background: rgba(226, 92, 92, 0.08);
+      border: 1px solid var(--accent-danger);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      color: var(--accent-danger);
+      font-size: 13px;
+      margin-bottom: 20px;
+      display: none;
+      text-align: center;
+    }
+
+    .error-banner.show {
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="ambient-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+  </div>
+
+  <div class="login-card" role="main">
+    <!-- Logo -->
+    <div class="logo">
+      <span class="logo-icon">🏢</span>
+      <span class="logo-text">Bank<span class="logo-accent">AI</span> Banker</span>
+    </div>
+
+    <h1 class="login-title">Banker Co-Pilot Sign In</h1>
+    <p class="login-sub">Access the customer application monitoring panel.</p>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="errorBanner" role="alert"></div>
+
+    <div class="field-group">
+      <label class="field-label" for="usernameInput">Username</label>
+      <input type="text" class="field-input" id="usernameInput" placeholder="Enter banker username" autocomplete="username" />
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="passwordInput">Password</label>
+      <input type="password" class="field-input" id="passwordInput" placeholder="Enter banker password" autocomplete="current-password" />
+    </div>
+
+    <button class="btn-login" id="btnLogin" onclick="loginBanker()">
+      Sign In →
+    </button>
+  </div>
+
+  <script src="js/toast.js"></script>
+  <script>
+    async function loginBanker() {
+      const errorBanner = document.getElementById('errorBanner');
+      const userVal = document.getElementById('usernameInput').value.trim();
+      const passVal = document.getElementById('passwordInput').value;
+
+      errorBanner.classList.remove('show');
+
+      if (!userVal || !passVal) {
+        errorBanner.textContent = 'Please enter both username and password.';
+        errorBanner.classList.add('show');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/auth/admin/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ username: userVal, password: passVal })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          errorBanner.textContent = err.detail || 'Invalid username or password.';
+          errorBanner.classList.add('show');
+          return;
+        }
+
+        const data = await res.json();
+        sessionStorage.setItem('adminToken', data.access_token);
+        // Also set bankai_token for default API calls
+        sessionStorage.setItem('bankai_token', data.access_token);
+
+        window.location.href = '/banker.html';
+      } catch (err) {
+        console.error(err);
+        errorBanner.textContent = 'Failed to connect to auth service.';
+        errorBanner.classList.add('show');
+      }
+    }
+
+    // Handle Enter keypress
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        loginBanker();
+      }
+    });
+  </script>
+</body>
+
+</html>

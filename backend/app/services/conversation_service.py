@@ -165,6 +165,7 @@ def handle_conversation_turn(
     submission_id: str,
     user_id: str,
     message: str,
+    language: str = "en-IN",
     db=None,  # kept for backward-compat but unused — Firestore uses get_db() internally
 ) -> ConversationTurnResponse:
     """
@@ -181,6 +182,7 @@ def handle_conversation_turn(
         submission_id: Active submission Firestore document ID
         user_id: Authenticated user's Firestore document ID
         message: Raw voice transcript from the frontend
+        language: Selected regional language code
         db: Ignored — included for backward compatibility only
 
     Returns:
@@ -189,7 +191,7 @@ def handle_conversation_turn(
     """
     # --- Try LLM agent first -----------------------------------------------
     if _is_llm_enabled():
-        llm_result = _try_llm_turn(submission_id, user_id, message)
+        llm_result = _try_llm_turn(submission_id, user_id, message, language)
         if llm_result is not None:
             return llm_result
         # LLM failed — fall through to keyword logic
@@ -206,6 +208,7 @@ def _try_llm_turn(
     submission_id: str,
     user_id: str,
     message: str,
+    language: str = "en-IN",
 ) -> Optional[ConversationTurnResponse]:
     """
     Attempt to process the turn via the LangGraph AI agent.
@@ -243,6 +246,7 @@ def _try_llm_turn(
             current_field=None,  # Agent will call get_next_field
             form_id=sub.get("form_id"),
             thread_id=f"submission_{sub['id']}",
+            language=language,
         )
 
         # Check for agent-level errors

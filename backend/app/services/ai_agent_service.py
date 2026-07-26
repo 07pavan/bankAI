@@ -107,6 +107,7 @@ class AgentState(TypedDict):
     current_field: Optional[str]
     form_id: Optional[str]          # Firestore doc ID or None
     error: Optional[str]
+    language: Optional[str]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -293,6 +294,48 @@ def _build_system_message(
     )
 
     full_prompt = SYSTEM_PROMPT + state_prompt
+
+    # Language and simplicity instructions
+    language = state.get("language", "en-IN")
+    if language == "hi-IN":
+        full_prompt += (
+            "\n\nTRANSLATION & LOCALIZATION (HINDI):\n"
+            "- You MUST speak/respond entirely in simple, warm, colloquial Hindi (using Devanagari script).\n"
+            "- Keep phrasing very simple, avoiding formal Sanskritized vocabulary. Speak like you are talking to an elder/grandparent.\n"
+            "- Translate nominee, signature, and other complex banking terms into simple Hindi explanations.\n"
+            "- Ask questions in Hindi but parse user responses to standard formats (e.g. date YYYY-MM-DD) before calling tools."
+        )
+    elif language == "kn-IN":
+        full_prompt += (
+            "\n\nTRANSLATION & LOCALIZATION (KANNADA):\n"
+            "- You MUST speak/respond entirely in simple, warm, colloquial Kannada (using Kannada script).\n"
+            "- Keep phrasing very simple and easy to understand for elderly or illiterate users.\n"
+            "- Translate Nominee and complex banking terms into simple Kannada explanations.\n"
+            "- Ask questions in Kannada but parse user responses to standard formats before calling tools."
+        )
+    elif language == "te-IN":
+        full_prompt += (
+            "\n\nTRANSLATION & LOCALIZATION (TELUGU):\n"
+            "- You MUST speak/respond entirely in simple, warm, colloquial Telugu (using Telugu script).\n"
+            "- Keep phrasing very simple and easy to understand for elderly or illiterate users.\n"
+            "- Translate Nominee and complex banking terms into simple Telugu explanations.\n"
+            "- Ask questions in Telugu but parse user responses to standard formats before calling tools."
+        )
+    elif language == "ta-IN":
+        full_prompt += (
+            "\n\nTRANSLATION & LOCALIZATION (TAMIL):\n"
+            "- You MUST speak/respond entirely in simple, warm, colloquial Tamil (using Tamil script).\n"
+            "- Keep phrasing very simple and easy to understand for elderly or illiterate users.\n"
+            "- Translate Nominee and complex banking terms into simple Tamil explanations.\n"
+            "- Ask questions in Tamil but parse user responses to standard formats before calling tools."
+        )
+    else:
+        full_prompt += (
+            "\n\nCOGNITIVE SIMPLIFICATION FOR ELDERLY/UNEDUCATED:\n"
+            "- Keep English phrasing extremely simple, clear, and friendly. Avoid jargon.\n"
+            "- Explain 'Nominee' as: 'the person who gets the money in your account if you are no longer there'.\n"
+            "- Explain 'Threshold limit' as: 'the maximum limit of money you want to transact'."
+        )
 
     # Append RAG context if provided
     if rag_context:
@@ -1055,6 +1098,7 @@ def invoke_agent(
     current_field: Optional[str] = None,
     form_id: Optional[str] = None,
     thread_id: Optional[str] = None,
+    language: str = "en-IN",
 ) -> dict[str, Any]:
     """
     Run one turn of the AI agent and return the updated state.
@@ -1075,6 +1119,7 @@ def invoke_agent(
         form_id:            Currently selected form ID (optional).
         thread_id:          Checkpoint thread ID for conversation continuity.
                             Defaults to "user_{user_id}" if not provided.
+        language:           User's selected language code.
 
     Returns:
         Dict with keys: messages, conversation_state, submission_id,
@@ -1095,6 +1140,7 @@ def invoke_agent(
         "current_field": current_field,
         "form_id": form_id,
         "error": None,
+        "language": language,
     }
 
     # --- Invoke the graph --------------------------------------------------

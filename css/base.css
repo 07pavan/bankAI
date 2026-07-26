@@ -276,3 +276,54 @@ input::placeholder, textarea::placeholder {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-fey-ash);
 }
+
+/* ♿ Accessibility controls toolbar */
+.a11y-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 100;
+  width: 100%;
+}
+
+.a11y-select {
+  padding: 8px 12px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.btn-a11y {
+  padding: 8px 16px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius-full);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: var(--transition);
+}
+
+.btn-a11y:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--accent);
+}
+
+body.accessibility-mode .btn-a11y {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}

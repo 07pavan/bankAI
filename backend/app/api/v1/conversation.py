@@ -162,6 +162,7 @@ class ConversationNextRequest(BaseModel):
     """Body for POST /conversation/next."""
     submission_id: str
     message: str = Field(..., min_length=1)  # raw voice transcript; must be non-empty
+    language: Optional[str] = "en-IN"
 
 
 class ConversationNextResponse(BaseModel):
@@ -250,6 +251,7 @@ def conversation_next(
             submission_id=payload.submission_id,
             user_id=user_id,
             message=payload.message,
+            language=payload.language or "en-IN",
             db=db,
         )
     except Exception as exc:

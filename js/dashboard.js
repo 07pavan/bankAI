@@ -25,6 +25,42 @@
     const progressLbl = document.getElementById('progressLabel');
     const progressPct = document.getElementById('progressPct');
 
+    // ── Accessibility & Language Toggle Setup ──
+    const btnA11yToggle = document.getElementById('btnA11yToggle');
+    const langSelect = document.getElementById('langSelect');
+
+    // Initialize Theme
+    if (localStorage.getItem('a11yMode') === 'enabled') {
+        document.body.classList.add('accessibility-mode');
+        if (btnA11yToggle) btnA11yToggle.textContent = '♿ Normal Mode';
+    }
+
+    if (btnA11yToggle) {
+        btnA11yToggle.addEventListener('click', () => {
+            const enabled = document.body.classList.toggle('accessibility-mode');
+            localStorage.setItem('a11yMode', enabled ? 'enabled' : 'disabled');
+            btnA11yToggle.textContent = enabled ? '♿ Normal Mode' : '♿ Easy Mode';
+            if (window.BankAI_Toast) {
+                window.BankAI_Toast.info(enabled ? 'Accessibility Mode enabled (Large font / High contrast)' : 'Normal mode restored');
+            }
+        });
+    }
+
+    // Initialize Language
+    const storedLang = localStorage.getItem('userLanguage') || 'en-IN';
+    if (langSelect) {
+        langSelect.value = storedLang;
+        langSelect.addEventListener('change', () => {
+            localStorage.setItem('userLanguage', langSelect.value);
+            if (window.BankAI_Toast) {
+                window.BankAI_Toast.info(`Language set to ${langSelect.options[langSelect.selectedIndex].text}`);
+            }
+            if (recognition) {
+                recognition.lang = langSelect.value;
+            }
+        });
+    }
+
     // ── Agent state ───────────────────────────────────────────────────────────
     const state = {
         mode: 'chat',          // "chat" | "form_filling" | "done"
@@ -48,10 +84,9 @@
     let micSource = null;
     let mediaRecorder = null;
     let webSocket = null;
-
     if (SpeechRec) {
         recognition = new SpeechRec();
-        recognition.lang = 'en-IN';
+        recognition.lang = storedLang;
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
@@ -106,6 +141,13 @@
         
         // Remove markdown elements from speech text
         const speechText = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+
+        const currentLang = localStorage.getItem('userLanguage') || 'en-IN';
+        if (currentLang !== 'en-IN') {
+            // Force browser local TTS fallback for regional languages
+            speakFallback(speechText, callback);
+            return;
+        }
 
         try {
             panel.classList.add('speaking');
@@ -170,15 +212,21 @@
             return;
         }
 
+        const currentLang = localStorage.getItem('userLanguage') || 'en-IN';
         const utt = new SpeechSynthesisUtterance(speechText);
-        utt.lang = 'en-IN';
+        utt.lang = currentLang;
         utt.rate = 0.92;
         utt.pitch = 1.05;
 
-        // Prefer an Indian English voice if available
+        // Prefer selected regional voice or fallback to Indian/generic English
         const voices = state.synth.getVoices();
-        const indVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
-        if (indVoice) utt.voice = indVoice;
+        let targetVoice = voices.find(v => v.lang === currentLang) || 
+                          voices.find(v => v.lang.startsWith(currentLang.split('-')[0]));
+                          
+        if (!targetVoice && currentLang !== 'en-IN') {
+            targetVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
+        }
+        if (targetVoice) utt.voice = targetVoice;
 
         utt.onstart = () => panel.classList.add('speaking');
         utt.onend = () => {
@@ -515,9 +563,14 @@
     // ── Form filling: POST /api/v1/conversation/next ──────────────────────────
     async function handleFormTurn(message) {
         try {
+            const selectedLanguage = localStorage.getItem('userLanguage') || 'en-IN';
             const res = await BankAI_API.request(BankAI_API.ENDPOINTS.CONVERSATION_NEXT, {
                 method: 'POST',
-                body: { submission_id: state.submissionId, message }
+                body: { 
+                    submission_id: state.submissionId, 
+                    message,
+                    language: selectedLanguage
+                }
             });
             removeTyping();
 
@@ -795,6 +848,79 @@
                 setBusy(false);
             }
         });
+
+        // Voice signature recording setup
+        const btnRecordVoiceSig = document.getElementById('btnRecordVoiceSig');
+        const voiceSigStatus = document.getElementById('voiceSigStatus');
+        let voiceSigRecorder = null;
+        let voiceSigChunks = [];
+
+        if (btnRecordVoiceSig) {
+            // Prevent multiple registrations
+            if (!btnRecordVoiceSig.hasListener) {
+                btnRecordVoiceSig.hasListener = true;
+                btnRecordVoiceSig.addEventListener('click', async () => {
+                    if (btnRecordVoiceSig.classList.contains('recording')) {
+                        if (voiceSigRecorder) voiceSigRecorder.stop();
+                        btnRecordVoiceSig.classList.remove('recording');
+                        btnRecordVoiceSig.innerHTML = '🎙️ Record Consent';
+                        btnRecordVoiceSig.style.background = '';
+                    } else {
+                        voiceSigChunks = [];
+                        try {
+                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            voiceSigRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                            voiceSigRecorder.ondataavailable = (e) => {
+                                if (e.data.size > 0) voiceSigChunks.push(e.data);
+                            };
+                            voiceSigRecorder.onstop = async () => {
+                                voiceSigStatus.textContent = 'Processing...';
+                                const blob = new Blob(voiceSigChunks, { type: 'audio/webm' });
+                                
+                                const reader = new FileReader();
+                                reader.readAsDataURL(blob);
+                                reader.onloadend = async () => {
+                                    const base64Audio = reader.result;
+                                    setBusy(true);
+                                    try {
+                                        const res = await BankAI_API.uploadVoiceSignature(state.submissionId, base64Audio);
+                                        if (!res.ok) {
+                                            const err = await res.json().catch(() => ({}));
+                                            BankAI_Toast.error(err.detail || 'Failed to save voice consent.');
+                                            voiceSigStatus.textContent = 'Error saving';
+                                            return;
+                                        }
+                                        BankAI_Toast.success('Voice consent recorded successfully!');
+                                        document.getElementById('signatureModal').classList.remove('open');
+                                        removeSignatureButton();
+                                        
+                                        showTyping();
+                                        await handleFormTurn('Voice signature provided');
+                                    } catch (err) {
+                                        console.error(err);
+                                        BankAI_Toast.error('Network error uploading voice consent.');
+                                        voiceSigStatus.textContent = 'Network error';
+                                    } finally {
+                                        setBusy(false);
+                                    }
+                                };
+                                stream.getTracks().forEach(track => track.stop());
+                            };
+
+                            voiceSigRecorder.start();
+                            btnRecordVoiceSig.classList.add('recording');
+                            btnRecordVoiceSig.innerHTML = '🛑 Stop Recording';
+                            btnRecordVoiceSig.style.background = 'var(--accent-danger)';
+                            voiceSigStatus.textContent = 'Recording your consent... speak now';
+                        } catch (err) {
+                            console.error('Mic access failed for voice signature:', err);
+                            BankAI_Toast.error('Microphone access denied or unavailable.');
+                            voiceSigStatus.textContent = 'Mic error';
+                        }
+                    }
+                });
+            }
+        }
     }
 
     function getMousePos(e) {

@@ -145,3 +145,81 @@
   --shadow-card: var(--shadow-xl);
   --shadow-glow: var(--shadow-md);
 }
+
+/* ♿ Accessibility Mode overrides (High-Contrast Light Theme with Large Legible Type) */
+body.accessibility-mode {
+  --color-fey-white: #0b0b0b;
+  --color-fey-ink: #f8fafc;
+  --color-fey-charcoal: #ffffff;
+  --color-fey-obsidian: #f1f5f9;
+  --color-fey-graphite: #0f172a;
+  --color-fey-mist: #1e293b;
+  --color-fey-smoke: #94a3b8;
+  --color-fey-pale: #cbd5e1;
+  --color-fey-ash: #475569;
+
+  --color-fey-ember: #ea580c;
+  --gradient-fey-ember: linear-gradient(97.13deg, #ea580c 8.47%, #9a3412 108.41%);
+  
+  --color-fey-signal: #2563eb;
+  --color-fey-growth: #16a34a;
+  --color-fey-abyss: #ffffff;
+
+  --bg-deep: var(--surface-canvas);
+  --bg-card: var(--surface-card);
+  --bg-card-border: var(--color-fey-pale);
+  --bg-surface-hover: rgba(0, 0, 0, 0.06);
+
+  --accent: var(--color-fey-signal);
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-glow: rgba(37, 99, 235, 0.25);
+
+  --accent-green: var(--color-fey-growth);
+  --accent-green-soft: rgba(22, 163, 74, 0.12);
+  --accent-green-glow: rgba(22, 163, 74, 0.25);
+
+  --accent-purple: var(--color-fey-ember);
+  --accent-purple-soft: rgba(234, 88, 12, 0.12);
+  --accent-purple-glow: rgba(234, 88, 12, 0.25);
+
+  --accent-danger: #dc2626;
+  --accent-danger-soft: rgba(220, 38, 38, 0.12);
+  --accent-danger-glow: rgba(220, 38, 38, 0.25);
+
+  --accent-warning: #ea580c;
+  --accent-warning-soft: rgba(234, 88, 12, 0.12);
+  --accent-warning-glow: rgba(234, 88, 12, 0.25);
+
+  --border: var(--color-fey-pale);
+  --border-muted: rgba(0, 0, 0, 0.08);
+
+  --text-primary: var(--color-fey-white);
+  --text-secondary: var(--color-fey-graphite);
+  --text-muted: var(--color-fey-ash);
+
+  /* Shadows for light mode */
+  --shadow-xl: rgba(0, 0, 0, 0.06) 0px 4px 20px 0px;
+  --shadow-subtle: rgba(0, 0, 0, 0.03) 0px 1px 0px 0px;
+  --shadow-md: rgba(37, 99, 235, 0.12) 0px 0px 14px 0px;
+  --shadow-xl-2: rgba(0, 0, 0, 0.04) 0px 4px 15px 0px;
+
+  --surface-canvas: #f8fafc;
+  --surface-card: #ffffff;
+  --surface-elevated: #f1f5f9;
+  --surface-overlay: rgba(255, 255, 255, 0.85);
+
+  /* Typography enlargement for visual accessibility */
+  --text-caption: 14px;
+  --text-body: 18px;
+  --text-heading-sm: 22px;
+  --text-heading: 28px;
+  --text-heading-lg: 32px;
+  --text-display: 52px;
+  --text-display-lg: 58px;
+
+  /* Looser letter spacing for legibility */
+  --tracking-heading: 0em;
+  --tracking-heading-lg: 0em;
+  --tracking-display: 0em;
+  --tracking-display-lg: 0em;
+}

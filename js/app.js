@@ -5,6 +5,39 @@
 (() => {
     'use strict';
 
+    // ── Accessibility & Language Toggle Setup ──
+    const btnA11yToggle = document.getElementById('btnA11yToggle');
+    const langSelect = document.getElementById('langSelect');
+
+    // Initialize Theme
+    if (localStorage.getItem('a11yMode') === 'enabled') {
+        document.body.classList.add('accessibility-mode');
+        if (btnA11yToggle) btnA11yToggle.textContent = '♿ Normal Mode';
+    }
+
+    if (btnA11yToggle) {
+        btnA11yToggle.addEventListener('click', () => {
+            const enabled = document.body.classList.toggle('accessibility-mode');
+            localStorage.setItem('a11yMode', enabled ? 'enabled' : 'disabled');
+            btnA11yToggle.textContent = enabled ? '♿ Normal Mode' : '♿ Easy Mode';
+            if (window.BankAI_Toast) {
+                window.BankAI_Toast.info(enabled ? 'Accessibility Mode enabled (Large font / High contrast)' : 'Normal mode restored');
+            }
+        });
+    }
+
+    // Initialize Language
+    const storedLang = localStorage.getItem('userLanguage') || 'en-IN';
+    if (langSelect) {
+        langSelect.value = storedLang;
+        langSelect.addEventListener('change', () => {
+            localStorage.setItem('userLanguage', langSelect.value);
+            if (window.BankAI_Toast) {
+                window.BankAI_Toast.info(`Language set to ${langSelect.options[langSelect.selectedIndex].text}`);
+            }
+        });
+    }
+
     // ── State ──
     const kycData = {
         aadhaar: null,
@@ -95,6 +128,77 @@
         targetPanel.classList.add('active');
     }
 
+    // ── Voice Guidance / Screen Reader helpers ──
+    const A11Y_STRINGS = {
+        'en-IN': {
+            holdAadhaar: "Please hold your Aadhaar card steady in front of the camera. Capturing in three seconds.",
+            holdPan: "Please hold your PAN card steady in front of the camera. Capturing in three seconds.",
+            selfie: "Please look straight into the camera and hold still. Capturing in three seconds.",
+            readAadhaar: "I scanned your Aadhaar number as {num}. If this is correct, tap Confirm. Otherwise, edit it or scan again.",
+            readPan: "I scanned your PAN number as {num}. If this is correct, tap Confirm. Otherwise, edit it or scan again."
+        },
+        'hi-IN': {
+            holdAadhaar: "कृपया अपना आधार कार्ड कैमरे के सामने सीधा रखें। तीन सेकंड में फोटो ली जाएगी।",
+            holdPan: "कृपया अपना पैन कार्ड कैमरे के सामने सीधा रखें। तीन सेकंड में फोटो ली जाएगी।",
+            selfie: "कृपया सीधे कैमरे में देखें और शांत रहें। तीन सेकंड में फोटो ली जाएगी।",
+            readAadhaar: "मैंने आपका आधार नंबर {num} पढ़ा है। यदि यह सही है, तो आगे बढ़ें। नहीं तो सुधारें या फिर से स्कैन करें।",
+            readPan: "मैंने आपका पैन नंबर {num} पढ़ा है। यदि यह सही है, तो आगे बढ़ें। नहीं तो सुधारें या फिर से स्कैन करें।"
+        },
+        'kn-IN': {
+            holdAadhaar: "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಆಧಾರ್ ಕಾರ್ಡ್ ಅನ್ನು ಕ್ಯಾಮೆರಾದ ಮುಂದೆ ಸ್ಥಿರವಾಗಿ ಹಿಡಿಯಿರಿ. ಮೂರು ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಫೋಟೋ ತೆಗೆದುಕೊಳ್ಳಲಾಗುವುದು.",
+            holdPan: "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಪ್ಯಾನ್ ಕಾರ್ಡ್ ಅನ್ನು ಕ್ಯಾಮೆರಾದ ಮುಂದೆ ಸ್ಥಿರವಾಗಿ ಹಿಡಿಯಿರಿ. ಮೂರು ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಫೋಟೋ ತೆಗೆದುಕೊಳ್ಳಲಾಗುವುದು.",
+            selfie: "ದಯವಿಟ್ಟು ನೇರವಾಗಿ ಕ್ಯಾಮೆರಾವನ್ನು ನೋಡಿ ಮತ್ತು ಸ್ಥಿರವಾಗಿರಿ. ಮೂರು ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಫೋಟೋ ತೆಗೆದುಕೊಳ್ಳಲಾಗುವುದು.",
+            readAadhaar: "ನಿಮ್ಮ ಆಧಾರ್ ಸಂಖ್ಯೆ {num} ಎಂದು ನಾನು ಓದಿದ್ದೇನೆ. ಇದು ಸರಿಯಾಗಿದ್ದರೆ ದೃಢೀಕರಿಸಿ, ಇಲ್ಲದಿದ್ದರೆ ತಿದ್ದಿ ಅಥವಾ ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ.",
+            readPan: "ನಿಮ್ಮ ಪ್ಯಾನ್ ಸಂಖ್ಯೆ {num} ಎಂದು ನಾನು ಓದಿದ್ದೇನೆ. ಇದು ಸರಿಯಾಗಿದ್ದರೆ ದೃಢೀಕರಿಸಿ, ಇಲ್ಲದಿದ್ದರೆ ತಿದ್ದಿ ಅಥವಾ ಮತ್ತೆ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ."
+        },
+        'te-IN': {
+            holdAadhaar: "దయచేసి మీ ఆధార్ కార్డ్‌ని కెమెరా ముందు స్థిరంగా ఉంచండి. మూడు సెకన్లలో ఫోటో తీయబడుతుంది.",
+            holdPan: "దయచేసి మీ పాన్ కార్డ్‌ని కెమెరా ముందు స్థిరంగా ఉంచండి. మూడు సెకన్లలో ఫోటో తీయబడుతుంది.",
+            selfie: "దయచేసి నేరుగా కెమెరా వైపు చూస్తూ నిశ్శబ్దంగా ఉండండి. మూడు సెకన్లలో ఫోటో తీయబడుతుంది.",
+            readAadhaar: "నేను మీ ఆధార్ నంబర్‌ను {num} గా చదివాను. ఇది సరైనదైతే కన్ఫర్మ్ చేయండి, లేదంటే సరిచేసి మళ్లీ స్ಕಾన్ చేయండి.",
+            readPan: "నేను మీ పాన్ నంబర్‌ను {num} గా చదివాను. ఇది సరైనదైతే కన్ఫర్మ్ చేయండి, లేదంటే సరిచేసి మళ్లీ స్కాన్ చేయండి."
+        },
+        'ta-IN': {
+            holdAadhaar: "தயவுசெய்து உங்கள் ஆதார் அட்டையை கேமராவுக்கு முன்னால் நிலையாக வைக்கவும். மூன்று வினாடிகளில் படம் பிடிக்கப்படும்.",
+            holdPan: "தயவுசெய்து உங்கள் பான் அட்டையை கேமராவுக்கு முன்னால் நிலையாக வைக்கவும். மூன்று வினாடிகளில் படம் பிடிக்கப்படும்.",
+            selfie: "தயவுசெய்து கேமராவை நேராகப் பார்த்து அசையாமல் இருங்கள். மூன்று வினாடிகளில் படம் பிடிக்கப்படும்.",
+            readAadhaar: "உங்கள் ஆதார் எண்ணை {num} எனப் படித்துள்ளேன். இது சரியென்றால் உறுதிப்படுத்தவும், இல்லையெனில் திருத்தவும் அல்லது மீண்டும் ஸ்கேன் செய்யவும்.",
+            readPan: "உங்கள் பான் எண்ணை {num} எனப் படித்துள்ளேன். இது சரியென்றால் உறுதிப்படுத்தவும், இல்லையெனில் திருத்தவும் அல்லது மீண்டும் ஸ்கேன் செய்யவும்."
+        }
+    };
+
+    function getA11yText(key, replacements = {}) {
+        const lang = localStorage.getItem('userLanguage') || 'en-IN';
+        let str = (A11Y_STRINGS[lang] || A11Y_STRINGS['en-IN'])[key] || '';
+        for (const [k, v] of Object.entries(replacements)) {
+            str = str.replace(`{${k}}`, v);
+        }
+        return str;
+    }
+
+    function speakA11y(text) {
+        if (localStorage.getItem('a11yMode') !== 'enabled') return;
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const currentLang = localStorage.getItem('userLanguage') || 'en-IN';
+        const utt = new SpeechSynthesisUtterance(text);
+        utt.lang = currentLang;
+        
+        const voices = window.speechSynthesis.getVoices();
+        let targetVoice = voices.find(v => v.lang === currentLang) || 
+                          voices.find(v => v.lang.startsWith(currentLang.split('-')[0]));
+        if (!targetVoice && currentLang !== 'en-IN') {
+            targetVoice = voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang.startsWith('en'));
+        }
+        if (targetVoice) utt.voice = targetVoice;
+        window.speechSynthesis.speak(utt);
+    }
+
+    function makeSpokenDigits(str) {
+        if (!str) return '';
+        return str.replace(/\s+/g, '').split('').join(', ');
+    }
+
     // ══════════════════════════════════
     // Aadhaar Document Scan (multi-pass OCR)
     // ══════════════════════════════════
@@ -104,6 +208,8 @@
         previewAadh.style.display = 'none';
         loaderAadh.style.display = 'none';
         resultAadh.style.display = 'none';
+
+        speakA11y(getA11yText('holdAadhaar'));
 
         try {
             await CameraModule.start(videoAadhaar, 'environment');
@@ -136,6 +242,10 @@
         if (!result.number) {
             inputAadh.placeholder = 'Could not detect — please enter manually';
             inputAadh.focus();
+            speakA11y(localStorage.getItem('userLanguage') === 'hi-IN' ? 'मैं आपका आधार नंबर नहीं पढ़ पाया। कृपया इसे टाइप करें।' : 'Could not detect card number. Please type it.');
+        } else {
+            const spokenNum = makeSpokenDigits(result.number);
+            speakA11y(getA11yText('readAadhaar', { num: spokenNum }));
         }
     }
 
@@ -148,6 +258,8 @@
         previewPan.style.display = 'none';
         loaderPan.style.display = 'none';
         resultPan.style.display = 'none';
+
+        speakA11y(getA11yText('holdPan'));
 
         try {
             await CameraModule.start(videoPan, 'environment');
@@ -180,6 +292,10 @@
         if (!result.number) {
             inputPan.placeholder = 'Could not detect — please enter manually';
             inputPan.focus();
+            speakA11y(localStorage.getItem('userLanguage') === 'hi-IN' ? 'मैं आपका पैन नंबर नहीं पढ़ पाया। कृपया इसे टाइप करें।' : 'Could not detect card number. Please type it.');
+        } else {
+            const spokenNum = makeSpokenDigits(result.number);
+            speakA11y(getA11yText('readPan', { num: spokenNum }));
         }
     }
 
@@ -249,6 +365,8 @@
         startSelfie.style.display = 'none';
         previewSelf.style.display = 'none';
         selfieActions.style.display = 'none';
+
+        speakA11y(getA11yText('selfie'));
 
         const viewport = document.getElementById('viewport-selfie');
         viewport.style.display = 'block';

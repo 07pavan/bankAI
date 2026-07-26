@@ -33,6 +33,17 @@
                 <span class="logo-text">Bank<span class="logo-accent">AI</span></span>
             </div>
             <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <!-- Accessibility & Language Bar -->
+                <div class="a11y-bar" style="margin-bottom: 0;">
+                  <select id="langSelect" class="a11y-select" aria-label="Select Language">
+                    <option value="en-IN">English (India)</option>
+                    <option value="hi-IN">हिन्दी (Hindi)</option>
+                    <option value="kn-IN">ಕನ್ನಡ (Kannada)</option>
+                    <option value="te-IN">తెలుగు (Telugu)</option>
+                    <option value="ta-IN">தமிழ் (Tamil)</option>
+                  </select>
+                  <button id="btnA11yToggle" class="btn-a11y" aria-label="Toggle Easy Mode">♿ Easy Mode</button>
+                </div>
                 <div class="nav-badge" role="status" aria-label="KYC Verified">KYC Verified</div>
                 <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
             </div>
@@ -265,11 +276,20 @@
                 <button class="modal-close" id="closeSigModal" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-instruction">Please draw your signature in the box below using your mouse or touch screen. This is required to complete your application.</p>
+                <p class="modal-instruction">Please draw your signature in the box below using your mouse or touch screen. Alternatively, if you have difficulty signing, click the microphone below to record a Voice Consent signature.</p>
                 <div class="canvas-container">
                     <canvas id="signatureCanvas" width="450" height="200"></canvas>
                 </div>
-                <div class="signature-actions">
+
+                <!-- Voice Consent Signature Alternative -->
+                <div class="voice-sig-container" style="margin-top: 1rem; padding: 12px; border: 1px dashed var(--border); border-radius: var(--radius-md); text-align: center;">
+                    <p style="font-size: 13px; margin-bottom: 8px;"><strong>Voice Consent Option (A11y):</strong> Speak the consent statement aloud.</p>
+                    <div id="voiceSigPrompt" style="font-style: italic; color: var(--color-fey-ember); margin-bottom: 8px; font-size: 13px;">"I agree to submit this application."</div>
+                    <button class="btn btn-secondary btn-sm" id="btnRecordVoiceSig" style="gap: 6px;">🎙️ Record Consent</button>
+                    <span id="voiceSigStatus" style="font-size: 12px; margin-left: 8px; color: var(--text-muted);"></span>
+                </div>
+
+                <div class="signature-actions" style="margin-top: 1rem;">
                     <button class="btn btn-secondary btn-sm" id="clearSigBtn">Clear</button>
                     <button class="btn btn-primary btn-sm" id="saveSigBtn">Save Signature</button>
                 </div>

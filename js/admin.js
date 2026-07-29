@@ -27,6 +27,8 @@ const subLimit = 20;
 let auditSkip = 0;
 const auditLimit = 30;
 
+let editingSectionId = null;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Init
 // ────────────────────────────────────────────────────────────────────────────
@@ -34,8 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (adminToken) {
         tryBootstrap();
     } else {
-        // No token at all — redirect to login
-        showAuthDenied('Please complete your login at the homepage first.');
+        // No token — show direct sign in
+        showAuthDenied('');
     }
 });
 
@@ -48,7 +50,7 @@ async function tryBootstrap() {
             return;
         }
         if (!meRes.ok) {
-            showAuthDenied('Session expired. Please log in again at the homepage.');
+            showAuthDenied('Session expired. Please log in again.');
             return;
         }
         const meData = await meRes.json();
@@ -66,53 +68,131 @@ async function tryBootstrap() {
     } catch (e) {
         adminToken = null;
         sessionStorage.removeItem('bankai_token');
-        showAuthDenied('Session error. Please log in again at the homepage.');
+        showAuthDenied('Session error. Please log in.');
     }
 }
 
 function showAuthDenied(message) {
     const overlay = document.getElementById('authOverlay');
     const errEl = document.getElementById('authError');
+    const errElToken = document.getElementById('authErrorToken');
     overlay.style.display = 'flex';
-    errEl.style.display = 'block';
-    errEl.textContent = message;
-    // Hide the token paste form — replaced by redirect button
-    const tokenForm = document.getElementById('tokenForm');
-    if (tokenForm) tokenForm.style.display = 'none';
-    // Show a redirect button
-    const existing = document.getElementById('goLoginBtn');
-    if (!existing) {
-        const btn = document.createElement('a');
-        btn.id = 'goLoginBtn';
-        btn.href = '/login.html';
-        btn.className = 'btn btn-primary';
-        btn.style.cssText = 'display:inline-block;margin-top:1rem;';
-        btn.textContent = '→ Go to Login Page';
-        overlay.appendChild(btn);
+    
+    if (message) {
+        if (errEl) { errEl.textContent = message; errEl.style.display = 'block'; }
+        if (errElToken) { errElToken.textContent = message; errElToken.style.display = 'block'; }
+    } else {
+        if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+        if (errElToken) { errElToken.textContent = ''; errElToken.style.display = 'none'; }
     }
 }
 
-/**
- * submitToken() — called by the "Access Admin Panel" button in admin.html
- * Reads the JWT from the textarea, stores it, and attempts bootstrap.
- */
+function switchAuthTab(tab) {
+    const credForm = document.getElementById('authCredentialsForm');
+    const tokenForm = document.getElementById('authTokenForm');
+    const btnCred = document.getElementById('tabBtnCredentials');
+    const btnTok = document.getElementById('tabBtnToken');
+    const errEl = document.getElementById('authError');
+    const errElToken = document.getElementById('authErrorToken');
+    
+    if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+    if (errElToken) { errElToken.textContent = ''; errElToken.style.display = 'none'; }
+
+    if (tab === 'credentials') {
+        if (credForm) credForm.style.display = 'block';
+        if (tokenForm) tokenForm.style.display = 'none';
+        if (btnCred) {
+            btnCred.classList.add('active');
+            btnCred.style.background = 'var(--surface-canvas)';
+            btnCred.style.color = 'var(--color-fey-white)';
+        }
+        if (btnTok) {
+            btnTok.classList.remove('active');
+            btnTok.style.background = 'transparent';
+            btnTok.style.color = 'var(--color-fey-graphite)';
+        }
+    } else {
+        if (credForm) credForm.style.display = 'none';
+        if (tokenForm) tokenForm.style.display = 'block';
+        if (btnCred) {
+            btnCred.classList.remove('active');
+            btnCred.style.background = 'transparent';
+            btnCred.style.color = 'var(--color-fey-graphite)';
+        }
+        if (btnTok) {
+            btnTok.classList.add('active');
+            btnTok.style.background = 'var(--surface-canvas)';
+            btnTok.style.color = 'var(--color-fey-white)';
+        }
+    }
+}
+
+async function loginWithCredentials() {
+    const userVal = document.getElementById('usernameInput').value.trim();
+    const passVal = document.getElementById('passwordInput').value;
+    const errEl = document.getElementById('authError');
+    if (errEl) errEl.style.display = 'none';
+
+    if (!userVal || !passVal) {
+        if (errEl) {
+            errEl.textContent = 'Please enter both username and password.';
+            errEl.style.display = 'block';
+        }
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/auth/admin/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username: userVal, password: passVal })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            if (errEl) {
+                errEl.textContent = err.detail || 'Invalid username or password.';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+
+        const data = await res.json();
+        adminToken = data.access_token;
+        sessionStorage.setItem('bankai_token', data.access_token);
+        showToast('Login successful!', 'success');
+        tryBootstrap();
+    } catch (err) {
+        console.error(err);
+        if (errEl) {
+            errEl.textContent = 'Failed to connect to authentication service.';
+            errEl.style.display = 'block';
+        }
+    }
+}
+
 function submitToken() {
     const tokenInput = document.getElementById('tokenInput');
-    const errEl = document.getElementById('authError');
+    const errElToken = document.getElementById('authErrorToken');
 
     if (!tokenInput) return;
     const token = tokenInput.value.trim();
     if (!token) {
-        errEl.textContent = 'Please paste your JWT token.';
-        errEl.style.display = 'block';
+        if (errElToken) {
+            errElToken.textContent = 'Please paste your JWT token.';
+            errElToken.style.display = 'block';
+        }
         return;
     }
 
-    errEl.style.display = 'none';
+    if (errElToken) errElToken.style.display = 'none';
     adminToken = token;
     sessionStorage.setItem('bankai_token', token);
     tryBootstrap();
 }
+
 
 function logout() {
     adminToken = null;
@@ -244,6 +324,17 @@ async function saveBankEdit() {
     await loadBanks();
 }
 
+async function deleteBank() {
+    if (!editingBankId) return;
+    if (!confirm('Are you sure you want to delete this bank? This will cascade delete all its forms, sections, and fields!')) return;
+    const res = await apiFetch(`/banks/${editingBankId}`, 'DELETE');
+    if (!res.ok) return handleError(res);
+    showToast('Bank deleted!', 'success');
+    closeModal('bankEditModal');
+    await loadBanks();
+}
+
+
 // ────────────────────────────────────────────────────────────────────────────
 // Forms
 // ────────────────────────────────────────────────────────────────────────────
@@ -308,6 +399,8 @@ function openCreateFormModal() {
     document.getElementById('formDesc').value = '';
     document.getElementById('formCode').disabled = false;
     document.getElementById('formActiveGroup').style.display = 'none';
+    const delBtn = document.getElementById('formDeleteBtn');
+    if (delBtn) delBtn.style.display = 'none';
     openModal('formModal');
 }
 
@@ -321,6 +414,8 @@ function openEditFormModal(id, name, desc, isActive) {
     document.getElementById('formDesc').value = desc;
     document.getElementById('formIsActive').checked = isActive;
     document.getElementById('formActiveGroup').style.display = 'block';
+    const delBtn = document.getElementById('formDeleteBtn');
+    if (delBtn) delBtn.style.display = 'block';
     openModal('formModal');
 }
 
@@ -356,6 +451,21 @@ async function updateForm() {
     await loadForms();
 }
 
+async function deleteForm() {
+    if (!editingFormId) return;
+    if (!confirm('Are you sure you want to delete this form? This will cascade delete all its sections and fields!')) return;
+    const res = await apiFetch(`/forms/${editingFormId}`, 'DELETE');
+    if (!res.ok) return handleError(res);
+    showToast('Form deleted!', 'success');
+    closeModal('formModal');
+    if (selectedFormId === editingFormId) {
+        selectedFormId = null;
+        document.getElementById('formDetailCard').style.display = 'none';
+    }
+    await loadForms();
+}
+
+
 // ────────────────────────────────────────────────────────────────────────────
 // Sections
 // ────────────────────────────────────────────────────────────────────────────
@@ -375,6 +485,38 @@ function updateSectionSelect() {
     ).join('');
 }
 
+function openCreateSectionModal() {
+    editingSectionId = null;
+    document.getElementById('sectionModalTitle').textContent = '📁 Add Section';
+    document.getElementById('sectionModalSubmit').textContent = 'Add Section';
+    document.getElementById('sectionName').value = '';
+    document.getElementById('sectionOrder').value = '0';
+    const delBtn = document.getElementById('sectionDeleteBtn');
+    if (delBtn) delBtn.style.display = 'none';
+    openModal('sectionModal');
+}
+
+function openEditSectionModal(id) {
+    editingSectionId = id;
+    const sec = currentSections.find(s => s.id === id);
+    if (!sec) return;
+    document.getElementById('sectionModalTitle').textContent = '✏️ Edit Section';
+    document.getElementById('sectionModalSubmit').textContent = 'Save Changes';
+    document.getElementById('sectionName').value = sec.name;
+    document.getElementById('sectionOrder').value = sec.order_index;
+    const delBtn = document.getElementById('sectionDeleteBtn');
+    if (delBtn) delBtn.style.display = 'block';
+    openModal('sectionModal');
+}
+
+async function submitSectionModal() {
+    if (editingSectionId) {
+        await updateSection();
+    } else {
+        await createSection();
+    }
+}
+
 async function createSection() {
     if (!selectedFormId) { showToast('Select a form first', 'error'); return; }
     const name = document.getElementById('sectionName').value.trim();
@@ -386,6 +528,28 @@ async function createSection() {
     closeModal('sectionModal');
     document.getElementById('sectionName').value = '';
     document.getElementById('sectionOrder').value = '0';
+    await loadSections();
+}
+
+async function updateSection() {
+    if (!editingSectionId) return;
+    const name = document.getElementById('sectionName').value.trim();
+    const order_index = parseInt(document.getElementById('sectionOrder').value) || 0;
+    if (!name) { showToast('Section name required', 'error'); return; }
+    const res = await apiFetch(`/sections/${editingSectionId}`, 'PUT', { name, order_index });
+    if (!res.ok) { const e = await res.json(); showToast(e.detail || 'Failed', 'error'); return; }
+    showToast('Section updated!', 'success');
+    closeModal('sectionModal');
+    await loadSections();
+}
+
+async function deleteSectionConfirm() {
+    if (!editingSectionId) return;
+    if (!confirm('Are you sure you want to delete this section? Its fields will NOT be deleted, they will be moved to General/Unassigned.')) return;
+    const res = await apiFetch(`/sections/${editingSectionId}`, 'DELETE');
+    if (!res.ok) return handleError(res);
+    showToast('Section deleted!', 'success');
+    closeModal('sectionModal');
     await loadSections();
 }
 
@@ -469,6 +633,7 @@ function renderBuilderSection(section, fields) {
         : `
             <div style="display:flex; gap:0.5rem; align-items:center;">
                 <span class="section-order-badge" title="Order Index">Order: ${section.order_index}</span>
+                <button class="btn btn-secondary btn-sm" onclick="openEditSectionModal('${section.id}')" title="Edit Section">✏️ Edit</button>
                 <button class="btn btn-secondary btn-sm" onclick="openCreateFieldModalForSection('${section.id}')">+ Add Field</button>
             </div>
         `;
@@ -594,6 +759,8 @@ function openCreateFieldModal() {
     document.getElementById('fieldOptions').value = '';
     document.getElementById('fieldValidation').value = '';
     document.getElementById('fieldActiveGroup').style.display = 'none';
+    const delBtn = document.getElementById('fieldDeleteBtn');
+    if (delBtn) delBtn.style.display = 'none';
     document.querySelectorAll('.type-chip').forEach(c => c.classList.toggle('sel', c.dataset.type === 'text'));
     openModal('fieldModal');
 }
@@ -613,6 +780,8 @@ function openEditFieldModal(f) {
     document.getElementById('fieldValidation').value = f.validation_rule ? JSON.stringify(f.validation_rule, null, 2) : '';
     document.querySelectorAll('.type-chip').forEach(c => c.classList.toggle('sel', c.dataset.type === f.field_type));
     document.getElementById('fieldActiveGroup').style.display = 'block';
+    const delBtn = document.getElementById('fieldDeleteBtn');
+    if (delBtn) delBtn.style.display = 'block';
     const s = document.getElementById('fieldSection');
     if (f.section_id) {
         for (let o of s.options) { if (o.value == f.section_id) { o.selected = true; break; } }
@@ -668,6 +837,17 @@ async function updateField() {
     closeModal('fieldModal');
     await loadFields();
 }
+
+async function deleteFieldConfirm() {
+    if (!editingFieldId) return;
+    if (!confirm('Are you sure you want to delete this field?')) return;
+    const res = await apiFetch(`/fields/${editingFieldId}`, 'DELETE');
+    if (!res.ok) return handleError(res);
+    showToast('Field deleted!', 'success');
+    closeModal('fieldModal');
+    await loadFields();
+}
+
 
 function parseJsonField(id) {
     const raw = document.getElementById(id).value.trim();

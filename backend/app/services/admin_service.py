@@ -126,6 +126,39 @@ def update_bank(
     return _doc_to_dict(updated)
 
 
+def delete_bank(bank_id: str, actor_id: str = "system") -> None:
+    """
+    Delete a bank and cascade deletion to all forms, sections, and fields.
+    """
+    db = get_db()
+    bank_doc = db.collection(COLL_BANKS).document(bank_id).get()
+    if not bank_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Bank {bank_id} not found",
+        )
+
+    bank_name = bank_doc.to_dict().get("name", bank_id)
+
+    # Find and delete forms under this bank
+    forms = db.collection(COLL_FORMS).where("bank_id", "==", bank_id).stream()
+    for form in forms:
+        delete_form(form.id, actor_id=actor_id)
+
+    db.collection(COLL_BANKS).document(bank_id).delete()
+    logger.info(f"Admin deleted bank: {bank_name} ({bank_id})")
+
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="delete",
+        entity_type="bank",
+        entity_id=bank_id,
+        entity_name=bank_name,
+        details={"bank_id": bank_id},
+    )
+
+
+
 
 # ---------------------------------------------------------------------------
 # Forms
@@ -259,6 +292,44 @@ def update_form(
     return _doc_to_dict(updated)
 
 
+def delete_form(form_id: str, actor_id: str = "system") -> None:
+    """
+    Delete a form and cascade deletion to all sections and fields.
+    """
+    db = get_db()
+    form_doc = db.collection(COLL_FORMS).document(form_id).get()
+    if not form_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Form {form_id} not found",
+        )
+
+    form_name = form_doc.to_dict().get("name", form_id)
+
+    # Delete fields in this form
+    fields = db.collection(COLL_FORM_FIELDS).where("form_id", "==", form_id).stream()
+    for field in fields:
+        db.collection(COLL_FORM_FIELDS).document(field.id).delete()
+
+    # Delete sections in this form
+    sections = db.collection(COLL_FORM_SECTIONS).where("form_id", "==", form_id).stream()
+    for sec in sections:
+        db.collection(COLL_FORM_SECTIONS).document(sec.id).delete()
+
+    db.collection(COLL_FORMS).document(form_id).delete()
+    logger.info(f"Admin deleted form: {form_name} ({form_id})")
+
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="delete",
+        entity_type="form",
+        entity_id=form_id,
+        entity_name=form_name,
+        details={"form_id": form_id},
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
@@ -303,6 +374,79 @@ def create_section(form_id: str, name: str, order_index: int, actor_id: str = "s
         details={"form_id": form_id, "order_index": order_index},
     )
     return {"id": ref.id, **data}
+
+
+def update_section(
+    section_id: str,
+    name: Optional[str],
+    order_index: Optional[int],
+    actor_id: str = "system",
+) -> dict:
+    """
+    Update a form section's name and/or order_index.
+    """
+    db = get_db()
+    sec_doc = db.collection(COLL_FORM_SECTIONS).document(section_id).get()
+    if not sec_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Section {section_id} not found",
+        )
+
+    old = sec_doc.to_dict()
+    updates = {}
+    if name is not None:
+        updates["name"] = name.strip()
+    if order_index is not None:
+        updates["order_index"] = order_index
+
+    if updates:
+        db.collection(COLL_FORM_SECTIONS).document(section_id).update(updates)
+
+    logger.info(f"Admin updated section {section_id}")
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="update",
+        entity_type="section",
+        entity_id=section_id,
+        entity_name=updates.get("name") or old.get("name", section_id),
+        details=updates,
+    )
+    updated = db.collection(COLL_FORM_SECTIONS).document(section_id).get()
+    return _doc_to_dict(updated)
+
+
+def delete_section(section_id: str, actor_id: str = "system") -> None:
+    """
+    Delete a section. Move any fields in it to unassigned (section_id = None).
+    """
+    db = get_db()
+    sec_doc = db.collection(COLL_FORM_SECTIONS).document(section_id).get()
+    if not sec_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Section {section_id} not found",
+        )
+
+    sec_name = sec_doc.to_dict().get("name", section_id)
+
+    # Set fields under this section to have section_id = None
+    fields = db.collection(COLL_FORM_FIELDS).where("section_id", "==", section_id).stream()
+    for field in fields:
+        db.collection(COLL_FORM_FIELDS).document(field.id).update({"section_id": None})
+
+    db.collection(COLL_FORM_SECTIONS).document(section_id).delete()
+    logger.info(f"Admin deleted section: {sec_name} ({section_id})")
+
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="delete",
+        entity_type="section",
+        entity_id=section_id,
+        entity_name=sec_name,
+        details={"section_id": section_id},
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +600,34 @@ def update_field(
     )
     updated = db.collection(COLL_FORM_FIELDS).document(field_id).get()
     return _doc_to_dict(updated)
+
+
+def delete_field(field_id: str, actor_id: str = "system") -> None:
+    """
+    Delete a form field.
+    """
+    db = get_db()
+    field_doc = db.collection(COLL_FORM_FIELDS).document(field_id).get()
+    if not field_doc.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Field {field_id} not found",
+        )
+
+    field_name = field_doc.to_dict().get("label", field_id)
+
+    db.collection(COLL_FORM_FIELDS).document(field_id).delete()
+    logger.info(f"Admin deleted field: {field_name} ({field_id})")
+
+    audit_service.log_action(
+        actor_id=actor_id,
+        action="delete",
+        entity_type="field",
+        entity_id=field_id,
+        entity_name=field_name,
+        details={"field_id": field_id},
+    )
+
 
 
 # ---------------------------------------------------------------------------

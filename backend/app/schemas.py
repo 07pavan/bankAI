@@ -291,6 +291,13 @@ class SectionCreate(BaseModel):
     order_index: int = 0
 
 
+class SectionUpdate(BaseModel):
+    """Partial update for a form section."""
+    name: Optional[str] = None
+    order_index: Optional[int] = None
+
+
+
 class SectionAdminOut(BaseModel):
     """Section representation for admin."""
     id: str

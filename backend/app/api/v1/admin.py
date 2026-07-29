@@ -23,7 +23,7 @@ from app.schemas import (
     # Forms
     FormCreate, FormUpdate, FormAdminOut,
     # Sections
-    SectionCreate, SectionAdminOut,
+    SectionCreate, SectionUpdate, SectionAdminOut,
     # Fields
     FieldCreate, FieldUpdate, FieldAdminOut,
     # Submissions
@@ -96,6 +96,18 @@ def update_bank(
         actor_id=actor_id,
     )
 
+
+@router.delete("/banks/{bank_id}", status_code=200)
+def delete_bank(
+    bank_id: str,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Delete a bank and cascade delete forms, sections, and fields."""
+    admin_service.delete_bank(bank_id=bank_id, actor_id=actor_id)
+    return {"message": f"Bank {bank_id} deleted successfully"}
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Forms
 # ────────────────────────────────────────────────────────────────────────────
@@ -142,6 +154,17 @@ def update_form(
     )
 
 
+@router.delete("/forms/{form_id}", status_code=200)
+def delete_form(
+    form_id: str,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Delete a form and cascade delete sections and fields."""
+    admin_service.delete_form(form_id=form_id, actor_id=actor_id)
+    return {"message": f"Form {form_id} deleted successfully"}
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Sections
 # ────────────────────────────────────────────────────────────────────────────
@@ -169,6 +192,33 @@ def create_section(
         order_index=payload.order_index,
         actor_id=actor_id,
     )
+
+
+@router.put("/sections/{section_id}", response_model=SectionAdminOut)
+def update_section(
+    section_id: str,
+    payload: SectionUpdate,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Update a section's properties (name and/or order_index)."""
+    return admin_service.update_section(
+        section_id=section_id,
+        name=payload.name,
+        order_index=payload.order_index,
+        actor_id=actor_id,
+    )
+
+
+@router.delete("/sections/{section_id}", status_code=200)
+def delete_section(
+    section_id: str,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Delete a section and move its fields to unassigned."""
+    admin_service.delete_section(section_id=section_id, actor_id=actor_id)
+    return {"message": f"Section {section_id} deleted successfully"}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -225,6 +275,17 @@ def update_field(
         options=payload.options,
         actor_id=actor_id,
     )
+
+
+@router.delete("/fields/{field_id}", status_code=200)
+def delete_field(
+    field_id: str,
+    actor_id: str = Depends(get_current_user_id),
+    _admin=Depends(require_admin_user),
+):
+    """Delete a form field."""
+    admin_service.delete_field(field_id=field_id, actor_id=actor_id)
+    return {"message": f"Field {field_id} deleted successfully"}
 
 
 # ────────────────────────────────────────────────────────────────────────────

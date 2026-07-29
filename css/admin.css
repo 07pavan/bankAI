@@ -852,3 +852,33 @@ table tbody tr:hover td { background: rgba(255, 255, 255, 0.015); }
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Danger / Destructive Actions ── */
+.btn-danger {
+  background: transparent;
+  color: var(--accent-danger, #e25c5c);
+  border: 1px solid var(--accent-danger, #e25c5c);
+  transition: var(--transition);
+}
+
+.btn-danger:hover {
+  background: rgba(226, 92, 92, 0.05);
+  color: var(--accent-danger, #e25c5c);
+  border-color: var(--accent-danger, #e25c5c);
+  box-shadow: 0 0 10px rgba(226, 92, 92, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
+}
+
+/* ── Auth tab styling details ── */
+.auth-tab-btn:hover {
+  color: var(--color-fey-white) !important;
+}
+
+.auth-tab-btn.active:hover {
+  background: var(--surface-canvas) !important;
+}
+

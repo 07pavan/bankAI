@@ -23,17 +23,44 @@
       <span class="logo-text">Bank<span class="logo-accent">AI</span> <span class="admin-badge">ADMIN</span></span>
     </div>
     <h1>Admin Login<span style="color:var(--color-fey-ember)">.</span></h1>
-    <p>Enter your admin JWT token to access the admin panel.</p>
-    <div class="form-group">
-      <label class="form-label">Admin JWT Token</label>
-      <textarea id="tokenInput" class="form-textarea" style="width:100%;min-height:100px;font-family:monospace;font-size:11px;" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
-      <div class="auth-error" id="authError">Invalid or non-admin token. Please try again.</div>
+    
+    <div class="auth-tabs" style="display:flex; gap:0.5rem; margin-bottom:1.5rem; background:var(--surface-elevated); padding:4px; border-radius:99px; border:1px solid var(--color-fey-smoke);">
+      <button class="auth-tab-btn active" id="tabBtnCredentials" onclick="switchAuthTab('credentials')" style="flex:1; border:none; padding:8px 12px; border-radius:99px; font-size:12px; font-weight:var(--font-weight-medium); cursor:pointer; background:var(--surface-canvas); color:var(--color-fey-white); transition:var(--transition);">Credentials</button>
+      <button class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token')" style="flex:1; border:none; padding:8px 12px; border-radius:99px; font-size:12px; font-weight:var(--font-weight-medium); cursor:pointer; background:transparent; color:var(--color-fey-graphite); transition:var(--transition);">JWT Token</button>
     </div>
-    <button class="btn btn-accent" style="width:100%;" onclick="submitToken()">
-      Access Admin Panel →
-    </button>
+
+    <!-- Credentials Login Form -->
+    <div id="authCredentialsForm">
+      <p style="color:var(--color-fey-graphite); font-size:13px; margin-bottom:1.5rem;">Enter default administrator credentials to access the console.</p>
+      <div class="form-group">
+        <label class="form-label">Admin Username</label>
+        <input type="text" id="usernameInput" class="form-input" placeholder="Enter admin username" style="width:100%; box-sizing:border-box;" value="admin" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Admin Password</label>
+        <input type="password" id="passwordInput" class="form-input" placeholder="Enter admin password" style="width:100%; box-sizing:border-box;" value="adminpass" />
+      </div>
+      <div class="auth-error" id="authError" style="margin-bottom:1rem; text-align:center;"></div>
+      <button class="btn btn-accent" style="width:100%;" onclick="loginWithCredentials()">
+        Sign In to Admin Panel →
+      </button>
+    </div>
+
+    <!-- Token Login Form -->
+    <div id="authTokenForm" style="display:none">
+      <p style="color:var(--color-fey-graphite); font-size:13px; margin-bottom:1.5rem;">Paste an active admin JWT token to access the console.</p>
+      <div class="form-group">
+        <label class="form-label">Admin JWT Token</label>
+        <textarea id="tokenInput" class="form-textarea" style="width:100%;min-height:100px;font-family:monospace;font-size:11px;box-sizing:border-box;" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
+      </div>
+      <div class="auth-error" id="authErrorToken" style="margin-bottom:1rem; text-align:center;"></div>
+      <button class="btn btn-accent" style="width:100%;" onclick="submitToken()">
+        Access Admin Panel →
+      </button>
+    </div>
   </div>
 </div>
+
 
 <!-- Main shell -->
 <div class="ambient">
@@ -158,7 +185,7 @@
               <span class="badge badge-blue" id="selectedFormCode" style="font-family: monospace;"></span>
             </div>
             <div style="display:flex; gap:0.5rem;">
-              <button class="btn btn-secondary btn-sm" onclick="openModal('sectionModal')">📁 Add Section</button>
+              <button class="btn btn-secondary btn-sm" onclick="openCreateSectionModal()">📁 Add Section</button>
               <button class="btn btn-primary btn-sm" onclick="openCreateFieldModal()">🔧 Add Field</button>
             </div>
           </div>
@@ -304,12 +331,14 @@
         Active (visible to users)
       </label>
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="display:flex; justify-content:flex-end; align-items:center;">
+      <button class="btn btn-danger btn-sm" style="margin-right:auto; background:transparent; border:1px solid var(--accent-danger); color:var(--accent-danger);" onclick="deleteBank()">🗑️ Delete Bank</button>
       <button class="btn btn-secondary" onclick="closeModal('bankEditModal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveBankEdit()">Save Changes</button>
     </div>
   </div>
 </div>
+
 
 <!-- Add/Edit Form Modal -->
 <div class="modal-overlay" id="formModal">
@@ -342,18 +371,19 @@
         Active (visible to users)
       </label>
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="display:flex; justify-content:flex-end; align-items:center;">
+      <button class="btn btn-danger btn-sm" id="formDeleteBtn" style="margin-right:auto; display:none; background:transparent; border:1px solid var(--accent-danger); color:var(--accent-danger);" onclick="deleteForm()">🗑️ Delete Form</button>
       <button class="btn btn-secondary" onclick="closeModal('formModal')">Cancel</button>
       <button class="btn btn-primary" id="formModalSubmit" onclick="submitFormModal()">Create Form</button>
     </div>
   </div>
 </div>
 
-<!-- Add Section Modal -->
+<!-- Add/Edit Section Modal -->
 <div class="modal-overlay" id="sectionModal">
   <div class="modal">
     <div class="modal-top">
-      <h2>📁 Add Section</h2>
+      <h2 id="sectionModalTitle">📁 Add Section</h2>
       <button class="modal-close" onclick="closeModal('sectionModal')">✕</button>
     </div>
     <div class="form-group">
@@ -364,9 +394,10 @@
       <label>Order Index</label>
       <input type="number" class="form-input" id="sectionOrder" style="width:100%" value="0" min="0" />
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="display:flex; justify-content:flex-end; align-items:center;">
+      <button class="btn btn-danger btn-sm" id="sectionDeleteBtn" style="margin-right:auto; display:none; background:transparent; border:1px solid var(--accent-danger); color:var(--accent-danger);" onclick="deleteSectionConfirm()">🗑️ Delete Section</button>
       <button class="btn btn-secondary" onclick="closeModal('sectionModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="createSection()">Add Section</button>
+      <button class="btn btn-primary" id="sectionModalSubmit" onclick="submitSectionModal()">Add Section</button>
     </div>
   </div>
 </div>
@@ -431,7 +462,8 @@
       <label>Validation Rule JSON <span style="color:var(--muted);font-weight:400">(optional)</span></label>
       <textarea class="form-textarea" id="fieldValidation" placeholder='{"min_length":2, "pattern":"^\\d{10}$"}' style="font-family:monospace;font-size:.8rem;min-height:60px"></textarea>
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="display:flex; justify-content:flex-end; align-items:center;">
+      <button class="btn btn-danger btn-sm" id="fieldDeleteBtn" style="margin-right:auto; display:none; background:transparent; border:1px solid var(--accent-danger); color:var(--accent-danger);" onclick="deleteFieldConfirm()">🗑️ Delete Field</button>
       <button class="btn btn-secondary" onclick="closeModal('fieldModal')">Cancel</button>
       <button class="btn btn-primary" id="fieldModalSubmit" onclick="submitFieldModal()">Add Field</button>
     </div>

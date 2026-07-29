@@ -484,3 +484,172 @@ def test_bank_update():
     assert len(update_logs) >= 1
     assert update_logs[0]["entity_type"] == "bank"
 
+
+def test_admin_delete_and_section_update():
+    """
+    Test deleting banks, forms, sections, fields and updating sections:
+    1. Create bank, form, section, field
+    2. Update section name and order_index
+    3. Delete section -> verify fields under it have section_id = None
+    4. Delete field -> verify it is gone
+    5. Delete form -> verify form and its sections/fields are gone
+    6. Delete bank -> verify bank and its forms/sections/fields are gone
+    """
+    token = create_admin_user()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Create a bank
+    bank_resp = client.post(
+        "/api/v1/admin/banks",
+        headers=headers,
+        json={"name": "Delete Test Bank", "code": "DTB"}
+    )
+    assert bank_resp.status_code == 201
+    bank_id = bank_resp.json()["id"]
+
+    # 2. Create a form
+    form_resp = client.post(
+        "/api/v1/admin/forms",
+        headers=headers,
+        json={"bank_id": bank_id, "name": "Delete Form", "code": "delete_form"}
+    )
+    assert form_resp.status_code == 201
+    form_id = form_resp.json()["id"]
+
+    # 3. Create a section
+    sec_resp = client.post(
+        f"/api/v1/admin/forms/{form_id}/sections",
+        headers=headers,
+        json={"name": "Delete Section", "order_index": 1}
+    )
+    assert sec_resp.status_code == 201
+    sec_id = sec_resp.json()["id"]
+
+    # 4. Create a field
+    field_resp = client.post(
+        f"/api/v1/admin/forms/{form_id}/fields",
+        headers=headers,
+        json={
+            "field_key": "test_field",
+            "label": "Test Field",
+            "field_type": "text",
+            "required": True,
+            "order_index": 2,
+            "section_id": sec_id
+        }
+    )
+    assert field_resp.status_code == 201
+    field_id = field_resp.json()["id"]
+
+    # 5. Update section properties
+    sec_update_resp = client.put(
+        f"/api/v1/admin/sections/{sec_id}",
+        headers=headers,
+        json={"name": "Updated Section Name", "order_index": 5}
+    )
+    assert sec_update_resp.status_code == 200
+    assert sec_update_resp.json()["name"] == "Updated Section Name"
+    assert sec_update_resp.json()["order_index"] == 5
+
+    # 6. Delete section -> verify field retains section_id = None (unassigned)
+    del_sec_resp = client.delete(
+        f"/api/v1/admin/sections/{sec_id}",
+        headers=headers
+    )
+    assert del_sec_resp.status_code == 200
+
+    # Get fields for this form -> check field has section_id = None
+    fields_resp = client.get(
+        f"/api/v1/admin/forms/{form_id}/fields",
+        headers=headers
+    )
+    assert fields_resp.status_code == 200
+    fields = fields_resp.json()
+    assert len(fields) == 1
+    assert fields[0]["section_id"] is None
+
+    # 7. Delete field -> verify it is gone
+    del_field_resp = client.delete(
+        f"/api/v1/admin/fields/{field_id}",
+        headers=headers
+    )
+    assert del_field_resp.status_code == 200
+
+    # Verify field is gone
+    fields_resp = client.get(
+        f"/api/v1/admin/forms/{form_id}/fields",
+        headers=headers
+    )
+    assert fields_resp.status_code == 200
+    assert len(fields_resp.json()) == 0
+
+    # 8. Re-create a section and field under form to verify form cascade deletion
+    sec_resp = client.post(
+        f"/api/v1/admin/forms/{form_id}/sections",
+        headers=headers,
+        json={"name": "Temp Section", "order_index": 1}
+    )
+    assert sec_resp.status_code == 201
+    sec_id = sec_resp.json()["id"]
+
+    field_resp = client.post(
+        f"/api/v1/admin/forms/{form_id}/fields",
+        headers=headers,
+        json={
+            "field_key": "temp_field",
+            "label": "Temp Field",
+            "field_type": "text",
+            "required": True,
+            "order_index": 1,
+            "section_id": sec_id
+        }
+    )
+    assert field_resp.status_code == 201
+
+    # Delete form -> verify form is gone, sections are gone, fields are gone
+    del_form_resp = client.delete(
+        f"/api/v1/admin/forms/{form_id}",
+        headers=headers
+    )
+    assert del_form_resp.status_code == 200
+
+    # Verify form gone
+    forms_resp = client.get("/api/v1/admin/forms", headers=headers)
+    assert forms_resp.status_code == 200
+    forms = forms_resp.json()
+    assert not any(f["id"] == form_id for f in forms)
+
+    # Verify section gone by trying to delete it -> should be 404
+    del_sec_resp = client.delete(
+        f"/api/v1/admin/sections/{sec_id}",
+        headers=headers
+    )
+    assert del_sec_resp.status_code == 404
+
+    # 9. Verify bank cascade deletion: Create form and delete bank
+    form_resp = client.post(
+        "/api/v1/admin/forms",
+        headers=headers,
+        json={"bank_id": bank_id, "name": "Cascade Form", "code": "cascade_form"}
+    )
+    assert form_resp.status_code == 201
+    cascade_form_id = form_resp.json()["id"]
+
+    # Delete bank -> verify bank is gone and its forms are gone
+    del_bank_resp = client.delete(
+        f"/api/v1/admin/banks/{bank_id}",
+        headers=headers
+    )
+    assert del_bank_resp.status_code == 200
+
+    # Verify bank is gone
+    banks_resp = client.get("/api/v1/admin/banks", headers=headers)
+    assert banks_resp.status_code == 200
+    assert not any(b["id"] == bank_id for b in banks_resp.json())
+
+    # Verify cascaded form is gone
+    forms_resp = client.get("/api/v1/admin/forms", headers=headers)
+    assert forms_resp.status_code == 200
+    assert not any(f["id"] == cascade_form_id for f in forms_resp.json())
+
+

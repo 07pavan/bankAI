@@ -19,7 +19,37 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.database as app_db  # import after env vars are set
-from app.database import Base, get_db
+
+try:
+    from app.database import Base, get_db
+    # Use in-memory SQLite for testing
+    SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    # Patch the app's engine so Base.metadata.create_all uses SQLite
+    app_db.engine = engine
+    app_db.SessionLocal = TestingSessionLocal
+    IS_SQL = True
+except (ImportError, AttributeError):
+    IS_SQL = False
+    class Base:
+        class metadata:
+            @staticmethod
+            def create_all(bind=None):
+                pass
+            @staticmethod
+            def drop_all(bind=None):
+                pass
+    def get_db():
+        return None
+    engine = None
+    TestingSessionLocal = None
+
 from app.main import app
 from app.core.encryption import encryption_service
 from app.core.rate_limit import limiter
@@ -27,20 +57,6 @@ from app.core.rate_limit import limiter
 # Disable rate limiting during tests
 limiter.enabled = False
 
-
-# Use in-memory SQLite for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Patch the app's engine so Base.metadata.create_all uses SQLite
-app_db.engine = engine
-app_db.SessionLocal = TestingSessionLocal
 
 
 @pytest.fixture(scope="function")
